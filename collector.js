@@ -42,6 +42,9 @@
     ["GET", /^\/enet\/airoam\/group\/\d+\/conf$/]
   ];
 
+  const progress = { items: [], current: -1, completed: 0, running: false };
+  const getProgress = () => ({ ...progress, items: [...progress.items] });
+
   const pathOf = api => new URL(api, location.origin).pathname;
   const isAllowed = (api, method = "GET") => ALLOWED.some(([m, pattern]) => m === method && pattern.test(pathOf(api)));
 
@@ -98,6 +101,7 @@
   }
 
   async function run() {
+    Object.assign(progress, { items: [], current: -1, completed: 0, running: true });
     const errors = [];
     const safe = async (name, fn) => {
       try { return await fn(); }
@@ -123,20 +127,42 @@
     const now = Date.now();
     const dayAgo = now - 86_400_000;
 
-    const clients = await safe("clients", async () => {
+    progress.items = [
+      "Client data",
+      "Wireless templates",
+      ...devices.map((device, index) => `Device ${index + 1}: ${device.name || device.serialNumber || "Unknown"}`),
+      "Project overview",
+      "Topology",
+      "Client statistics",
+      "Wireless settings",
+      "Active alarms",
+      "Cleared alarms",
+      "Operation log"
+    ];
+    const exportItem = async fn => {
+      const index = ++progress.current;
+      try { return await fn(); }
+      finally { progress.completed = index + 1; }
+    };
+
+    const clients = await exportItem(() => safe("clients", async () => {
       const response = await call("/network/current/user/global/page", {
         module: "logbiz",
         querys: { group_id: groupId, page_index: 1, page_size: 9999 }
       });
       return response.list || [];
+    }));
+
+    const wirelessTemplates = await exportItem(async () => {
+      const templates = await safe("wireless.templates", () => call(`/conf/group/${encodedGroup}/templates`));
+      const wifi = await mapLimit(templates?.tempList || [], 3, template => safe(`wireless.template.${template.id}`, () => call("/conf/wifi_grp/wifi", {
+        querys: { group_id: groupId, conf_template_id: template.id }
+      })));
+      return { templates, wifi };
     });
 
-    const templates = await safe("wireless.templates", () => call(`/conf/group/${encodedGroup}/templates`));
-    const wifi = await mapLimit(templates?.tempList || [], 3, template => safe(`wireless.template.${template.id}`, () => call("/conf/wifi_grp/wifi", {
-      querys: { group_id: groupId, conf_template_id: template.id }
-    })));
-
-    const deviceSnapshots = await mapLimit(devices, 4, async device => {
+    const deviceSnapshots = [];
+    for (const device of devices) deviceSnapshots.push(await exportItem(async () => {
       const sn = encodeURIComponent(device.serialNumber);
       const type = String(device.commonType || device.productType || "").toUpperCase();
       const common = {
@@ -176,7 +202,26 @@
         };
       }
       return common;
-    });
+    }));
+
+    const projectOverview = await exportItem(async () => ({
+      summary: await safe("project.summary", () => call(`/maint/statistic/deviceinfo?group_id=${encodedGroup}`)),
+      networkModel: await safe("project.networkModel", () => call(`/maint/network/model/detail?group_id=${encodedGroup}`))
+    }));
+    const topology = await exportItem(async () => ({
+      generation: await safe("topology.generation", () => call(`/topology/generation/record/${encodedGroup}`)),
+      tree: await safe("topology.tree", () => call(`/topology/info/${encodedGroup}?with_wired_terminal=true&with_terminal=false`)),
+      terminals: await safe("topology.terminals", () => call(`/topology/terminal/info/${encodedGroup}`))
+    }));
+    const clientStatistics = await exportItem(() => safe("clients.statistics", () => call("/network/current/user/statistical", { module: "logbiz", querys: { group_id: groupId } })));
+    const wirelessSettings = await exportItem(async () => ({
+      radio: await safe("wireless.radio", () => call("/conf/radio/global/config", { querys: { group_id: groupId } })),
+      loadBalancing: await safe("wireless.loadBalancing", () => call(`/nbc/ap_lb/conf?group_id=${encodedGroup}`)),
+      aiRoaming: await safe("wireless.aiRoaming", () => call(`/enet/airoam/group/${encodedGroup}/conf`))
+    }));
+    const activeAlarms = await exportItem(() => safe("alarms.active", () => call(`/warn/warnlog?group_id=${encodedGroup}&page=1&per_page=9999&is_eliminate=false`)));
+    const clearedAlarms = await exportItem(() => safe("alarms.cleared", () => call(`/warn/warnlog?group_id=${encodedGroup}&page=1&per_page=9999&is_eliminate=true`)));
+    const operationLog = await exportItem(() => safe("operationLog", () => call(`/operationlog/list?start=${now - 30 * 86_400_000}&end=${now}&page=1&per_page=9999`)));
 
     const snapshot = redact({
       format: "ruijie-cloud-project-snapshot",
@@ -184,33 +229,21 @@
       exportedAt: new Date().toISOString(),
       source: { origin: location.origin, projectName: visibleProjectName },
       project,
-      summary: await safe("project.summary", () => call(`/maint/statistic/deviceinfo?group_id=${encodedGroup}`)),
-      networkModel: await safe("project.networkModel", () => call(`/maint/network/model/detail?group_id=${encodedGroup}`)),
-      topology: {
-        generation: await safe("topology.generation", () => call(`/topology/generation/record/${encodedGroup}`)),
-        tree: await safe("topology.tree", () => call(`/topology/info/${encodedGroup}?with_wired_terminal=true&with_terminal=false`)),
-        terminals: await safe("topology.terminals", () => call(`/topology/terminal/info/${encodedGroup}`))
-      },
+      summary: projectOverview.summary,
+      networkModel: projectOverview.networkModel,
+      topology,
       clients,
-      clientStatistics: await safe("clients.statistics", () => call("/network/current/user/statistical", { module: "logbiz", querys: { group_id: groupId } })),
-      wireless: {
-        radio: await safe("wireless.radio", () => call("/conf/radio/global/config", { querys: { group_id: groupId } })),
-        templates,
-        wifi,
-        loadBalancing: await safe("wireless.loadBalancing", () => call(`/nbc/ap_lb/conf?group_id=${encodedGroup}`)),
-        aiRoaming: await safe("wireless.aiRoaming", () => call(`/enet/airoam/group/${encodedGroup}/conf`))
-      },
-      alarms: {
-        active: await safe("alarms.active", () => call(`/warn/warnlog?group_id=${encodedGroup}&page=1&per_page=9999&is_eliminate=false`)),
-        cleared: await safe("alarms.cleared", () => call(`/warn/warnlog?group_id=${encodedGroup}&page=1&per_page=9999&is_eliminate=true`))
-      },
-      operationLog: await safe("operationLog", () => call(`/operationlog/list?start=${now - 30 * 86_400_000}&end=${now}&page=1&per_page=9999`)),
+      clientStatistics,
+      wireless: { ...wirelessSettings, ...wirelessTemplates },
+      alarms: { active: activeAlarms, cleared: clearedAlarms },
+      operationLog,
       devices: deviceSnapshots,
       errors
     });
 
     const safeName = visibleProjectName.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").slice(0, 80) || "project";
     const date = new Date().toISOString().slice(0, 10);
+    progress.running = false;
     return {
       filename: `ruijie-${safeName}-${date}.json`,
       json: JSON.stringify(snapshot, null, 2),
@@ -218,5 +251,5 @@
     };
   }
 
-  window.__ruijieCloudExporter = { run, redact, isAllowed };
+  window.__ruijieCloudExporter = { run, redact, isAllowed, getProgress };
 })();

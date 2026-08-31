@@ -36,7 +36,7 @@ const sandbox = {
 };
 vm.runInNewContext(fs.readFileSync(new URL("./collector.js", import.meta.url), "utf8"), sandbox);
 
-const { redact, isAllowed } = sandbox.window.__ruijieCloudExporter;
+const { redact, isAllowed, getProgress } = sandbox.window.__ruijieCloudExporter;
 assert.equal(redact({ password: "wifi-secret" }).password, "[REDACTED]");
 assert.equal(redact({ access_token: "abc" }).access_token, "[REDACTED]");
 assert.equal(redact({ serialNumber: "SN1" }).serialNumber, "SN1");
@@ -49,6 +49,15 @@ const result = await sandbox.window.__ruijieCloudExporter.run();
 const snapshot = JSON.parse(result.json);
 assert.equal(result.summary.devices, 3);
 assert.equal(result.summary.clients, 1);
+assert.deepEqual(JSON.parse(JSON.stringify(getProgress())), {
+  items: [
+    "Client data", "Wireless templates", "Device 1: GW1", "Device 2: SW1", "Device 3: AP1",
+    "Project overview", "Topology", "Client statistics", "Wireless settings", "Active alarms", "Cleared alarms", "Operation log"
+  ],
+  current: 11,
+  completed: 12,
+  running: false
+});
 assert.equal(snapshot.wireless.wifi[0].data.ssidList[0].password, "[REDACTED]");
 assert.ok(requests.every(request => isAllowed(request.api, request.method)));
 
