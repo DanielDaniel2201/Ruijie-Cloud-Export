@@ -1,0 +1,5 @@
+dist/
+ruijie-*.json
+*.zip
+.DS_Store
+Thumbs.db

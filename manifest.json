@@ -1,0 +1,12 @@
+{
+  "manifest_version": 3,
+  "name": "Ruijie Cloud Project Export",
+  "version": "0.1.0",
+  "description": "Export the current Ruijie Cloud project as a read-only JSON snapshot.",
+  "permissions": ["activeTab", "downloads", "scripting"],
+  "host_permissions": ["https://cloud-as.ruijienetworks.com/*"],
+  "action": {
+    "default_title": "Export Ruijie project",
+    "default_popup": "popup.html"
+  }
+}
