@@ -2,8 +2,12 @@ const button = document.querySelector("#export");
 const cancelButton = document.querySelector("#cancel");
 const progressList = document.querySelector("#progress");
 const status = document.querySelector("#status");
+const preview = document.querySelector("#preview");
+const selectAll = document.querySelector("#select-all");
+const choices = [...preview.querySelectorAll("input[value]")];
 let tabId;
 let polling = false;
+let exporting = false;
 let shownCurrent = -1;
 let latestProgress;
 let transitionTimer;
@@ -73,10 +77,25 @@ async function readProgress() {
   return result;
 }
 
-function setRunning(running) {
-  button.disabled = running;
-  cancelButton.hidden = !running;
+function updateSelection() {
+  const checked = choices.filter(choice => choice.checked).length;
+  selectAll.checked = checked === choices.length;
+  selectAll.indeterminate = checked > 0 && checked < choices.length;
+  button.disabled = exporting || checked === 0;
 }
+
+function setRunning(running) {
+  exporting = running;
+  preview.querySelectorAll("input").forEach(input => { input.disabled = running; });
+  cancelButton.hidden = !running;
+  updateSelection();
+}
+
+selectAll.addEventListener("change", () => {
+  choices.forEach(choice => { choice.checked = selectAll.checked; });
+  updateSelection();
+});
+choices.forEach(choice => choice.addEventListener("change", updateSelection));
 
 async function poll() {
   if (polling) return;
@@ -108,10 +127,13 @@ async function poll() {
   }
   polling = false;
   setRunning(false);
-  button.textContent = "Export current project";
+  button.textContent = "Export selected sections";
 }
 
 button.addEventListener("click", async () => {
+  const selected = choices.filter(choice => choice.checked).map(choice => choice.value);
+  if (!selected.length) return;
+  setRunning(true);
   status.className = "";
   status.textContent = "";
   progressList.hidden = true;
@@ -126,7 +148,8 @@ button.addEventListener("click", async () => {
     if (!existing.running) {
       await chrome.scripting.executeScript({
         target: { tabId },
-        func: () => { void window.__ruijieCloudExporter.start(); },
+        func: selected => { void window.__ruijieCloudExporter.start(selected); },
+        args: [selected],
         world: "MAIN"
       });
     }

@@ -105,8 +105,9 @@
     return results;
   }
 
-  async function run() {
+  async function run(selected) {
     if (progress.running) throw new Error("An export is already running.");
+    const wants = key => !selected || selected.includes(key);
     controller = new AbortController();
     Object.assign(progress, { items: [], current: -1, completed: 0, running: true, canceled: false, error: null, result: null });
     const errors = [];
@@ -141,17 +142,17 @@
     const dayAgo = now - 86_400_000;
 
     progress.items = [
-      "Client data",
-      "Wireless templates",
-      ...devices.map((device, index) => `Device ${index + 1}: ${device.name || device.serialNumber || "Unknown"}`),
-      "Project overview",
-      "Topology",
-      "Client statistics",
-      "Wireless settings",
-      "Portal authentication",
-      "Active alarms",
-      "Cleared alarms",
-      "Operation log"
+      ...(wants("clients.data") ? ["Client data"] : []),
+      ...(wants("wireless.templates") ? ["Wireless templates"] : []),
+      ...(wants("devices") ? devices.map((device, index) => `Device ${index + 1}: ${device.name || device.serialNumber || "Unknown"}`) : []),
+      ...(wants("project.overview") ? ["Project overview"] : []),
+      ...(wants("topology") ? ["Topology"] : []),
+      ...(wants("clients.statistics") ? ["Client statistics"] : []),
+      ...(wants("wireless.settings") ? ["Wireless settings"] : []),
+      ...(wants("portalAuth") ? ["Portal authentication"] : []),
+      ...(wants("alarms.active") ? ["Active alarms"] : []),
+      ...(wants("alarms.cleared") ? ["Cleared alarms"] : []),
+      ...(wants("operationLog") ? ["Operation log"] : [])
     ];
     const exportItem = async fn => {
       const index = ++progress.current;
@@ -159,24 +160,24 @@
       finally { progress.completed = index + 1; }
     };
 
-    const clients = await exportItem(() => safe("clients", async () => {
+    const clients = wants("clients.data") ? await exportItem(() => safe("clients", async () => {
       const response = await call("/network/current/user/global/page", {
         module: "logbiz",
         querys: { group_id: groupId, page_index: 1, page_size: 9999 }
       });
       return response.list || [];
-    }));
+    })) : undefined;
 
-    const wirelessTemplates = await exportItem(async () => {
+    const wirelessTemplates = wants("wireless.templates") ? await exportItem(async () => {
       const templates = await safe("wireless.templates", () => call(`/conf/group/${encodedGroup}/templates`));
       const wifi = await mapLimit(templates?.tempList || [], 3, template => safe(`wireless.template.${template.id}`, () => call("/conf/wifi_grp/wifi", {
         querys: { group_id: groupId, conf_template_id: template.id }
       })));
       return { templates, wifi };
-    });
+    }) : undefined;
 
     const deviceSnapshots = [];
-    for (const device of devices) deviceSnapshots.push(await exportItem(async () => {
+    if (wants("devices")) for (const device of devices) deviceSnapshots.push(await exportItem(async () => {
       const sn = encodeURIComponent(device.serialNumber);
       const type = String(device.commonType || device.productType || "").toUpperCase();
       const common = {
@@ -218,30 +219,30 @@
       return common;
     }));
 
-    const projectOverview = await exportItem(async () => ({
+    const projectOverview = wants("project.overview") ? await exportItem(async () => ({
       summary: await safe("project.summary", () => call(`/maint/statistic/deviceinfo?group_id=${encodedGroup}`)),
       networkModel: await safe("project.networkModel", () => call(`/maint/network/model/detail?group_id=${encodedGroup}`))
-    }));
-    const topology = await exportItem(async () => ({
+    })) : undefined;
+    const topology = wants("topology") ? await exportItem(async () => ({
       generation: await safe("topology.generation", () => call(`/topology/generation/record/${encodedGroup}`)),
       tree: await safe("topology.tree", () => call(`/topology/info/${encodedGroup}?with_wired_terminal=true&with_terminal=false`)),
       terminals: await safe("topology.terminals", () => call(`/topology/terminal/info/${encodedGroup}`))
-    }));
-    const clientStatistics = await exportItem(() => safe("clients.statistics", () => call("/network/current/user/statistical", { module: "logbiz", querys: { group_id: groupId } })));
-    const wirelessSettings = await exportItem(async () => ({
+    })) : undefined;
+    const clientStatistics = wants("clients.statistics") ? await exportItem(() => safe("clients.statistics", () => call("/network/current/user/statistical", { module: "logbiz", querys: { group_id: groupId } }))) : undefined;
+    const wirelessSettings = wants("wireless.settings") ? await exportItem(async () => ({
       radio: await safe("wireless.radio", () => call("/conf/radio/global/config", { querys: { group_id: groupId } })),
       loadBalancing: await safe("wireless.loadBalancing", () => call(`/nbc/ap_lb/conf?group_id=${encodedGroup}`)),
       aiRoaming: await safe("wireless.aiRoaming", () => call(`/enet/airoam/group/${encodedGroup}/conf`))
-    }));
-    const portalAuth = await exportItem(async () => ({
+    })) : undefined;
+    const portalAuth = wants("portalAuth") ? await exportItem(async () => ({
       policies: await safe("portalAuth.policies", () => call(`/intl/auth/v2/policy/${encodedGroup}?page_index=1&page_size=9999`, { querys: { show_temp_nbr: 1 } })),
       ability: await safe("portalAuth.ability", () => call(`/intl/auth/v2/ability/${encodedGroup}`, { querys: { show_temp_nbr: 1 } })),
       global: await safe("portalAuth.global", () => call(`/intl/auth/v2/global/${encodedGroup}`)),
       ssids: await safe("portalAuth.ssids", () => call(`/intl/auth/v2/group/${encodedGroup}/ssids`))
-    }));
-    const activeAlarms = await exportItem(() => safe("alarms.active", () => call(`/warn/warnlog?group_id=${encodedGroup}&page=1&per_page=9999&is_eliminate=false`)));
-    const clearedAlarms = await exportItem(() => safe("alarms.cleared", () => call(`/warn/warnlog?group_id=${encodedGroup}&page=1&per_page=9999&is_eliminate=true`)));
-    const operationLog = await exportItem(() => safe("operationLog", () => call(`/operationlog/list?start=${now - 30 * 86_400_000}&end=${now}&page=1&per_page=9999`)));
+    })) : undefined;
+    const activeAlarms = wants("alarms.active") ? await exportItem(() => safe("alarms.active", () => call(`/warn/warnlog?group_id=${encodedGroup}&page=1&per_page=9999&is_eliminate=false`))) : undefined;
+    const clearedAlarms = wants("alarms.cleared") ? await exportItem(() => safe("alarms.cleared", () => call(`/warn/warnlog?group_id=${encodedGroup}&page=1&per_page=9999&is_eliminate=true`))) : undefined;
+    const operationLog = wants("operationLog") ? await exportItem(() => safe("operationLog", () => call(`/operationlog/list?start=${now - 30 * 86_400_000}&end=${now}&page=1&per_page=9999`))) : undefined;
 
     const snapshot = redact({
       format: "ruijie-cloud-project-snapshot",
@@ -249,16 +250,16 @@
       exportedAt: new Date().toISOString(),
       source: { origin: location.origin, projectName: visibleProjectName },
       project,
-      summary: projectOverview.summary,
-      networkModel: projectOverview.networkModel,
+      summary: projectOverview?.summary,
+      networkModel: projectOverview?.networkModel,
       topology,
       clients,
       clientStatistics,
-      wireless: { ...wirelessSettings, ...wirelessTemplates },
+      wireless: wirelessSettings || wirelessTemplates ? { ...wirelessSettings, ...wirelessTemplates } : undefined,
       portalAuth,
-      alarms: { active: activeAlarms, cleared: clearedAlarms },
+      alarms: wants("alarms.active") || wants("alarms.cleared") ? { active: activeAlarms, cleared: clearedAlarms } : undefined,
       operationLog,
-      devices: deviceSnapshots,
+      devices: wants("devices") ? deviceSnapshots : undefined,
       errors
     });
 
@@ -267,7 +268,7 @@
     return {
       filename: `ruijie-${safeName}-${date}.json`,
       json: JSON.stringify(snapshot, null, 2),
-      summary: { devices: devices.length, clients: clients?.length || 0, errors: errors.length }
+      summary: { devices: wants("devices") ? devices.length : 0, clients: clients?.length || 0, errors: errors.length }
     };
     } finally {
       progress.running = false;
@@ -275,9 +276,9 @@
     }
   }
 
-  async function start() {
+  async function start(selected) {
     try {
-      const result = await run();
+      const result = await run(selected);
       const url = URL.createObjectURL(new Blob([result.json], { type: "application/json" }));
       const link = document.createElement("a");
       link.href = url;

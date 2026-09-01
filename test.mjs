@@ -69,6 +69,20 @@ assert.equal(snapshot.wireless.wifi[0].data.ssidList[0].password, "[REDACTED]");
 assert.equal(snapshot.portalAuth.policies.data[0].policyName, "Guest portal");
 assert.ok(requests.every(request => isAllowed(request.api, request.method)));
 
+requests.length = 0;
+const selectedResult = await sandbox.window.__ruijieCloudExporter.run(["project.overview"]);
+const selectedSnapshot = JSON.parse(selectedResult.json);
+assert.deepEqual(JSON.parse(JSON.stringify(getProgress().items)), ["Project overview"]);
+assert.equal("clients" in selectedSnapshot, false);
+assert.equal("devices" in selectedSnapshot, false);
+assert.equal(selectedResult.summary.devices, 0);
+assert.deepEqual(requests.map(request => request.api), [
+  "/maint/network/common/list?page_index=1&page_size=999&version=1&include_fitap=true",
+  "/maint/devices/list?page=1&per_page=9999",
+  "/maint/statistic/deviceinfo?group_id=7",
+  "/maint/network/model/detail?group_id=7"
+]);
+
 sandbox.fetch = (_url, options) => new Promise((_resolve, reject) => {
   options.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
 });
