@@ -1,4 +1,6 @@
 (() => {
+  if (window.__ruijieCloudExporter?.getProgress?.().running) return;
+
   const SECRET_KEY = /pass(word)?|pwd|psk|secret|token|cookie|credential|private.?key|community|user.?sig|access.?key/i;
   const ALLOWED = [
     ["GET", /^\/maint\/network\/common\/list$/],
@@ -44,7 +46,8 @@
     ["GET", /^\/enet\/airoam\/group\/\d+\/conf$/]
   ];
 
-  const progress = { items: [], current: -1, completed: 0, running: false };
+  const progress = { items: [], current: -1, completed: 0, running: false, canceled: false, error: null, result: null };
+  let controller;
   const getProgress = () => ({ ...progress, items: [...progress.items] });
 
   const pathOf = api => new URL(api, location.origin).pathname;
@@ -67,7 +70,7 @@
       credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(envelope),
-      signal: AbortSignal.timeout(20_000)
+      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)])
     });
     if (!response.ok) throw new Error(`${response.status} ${pathOf(api)}`);
 
@@ -103,12 +106,20 @@
   }
 
   async function run() {
-    Object.assign(progress, { items: [], current: -1, completed: 0, running: true });
+    if (progress.running) throw new Error("An export is already running.");
+    controller = new AbortController();
+    Object.assign(progress, { items: [], current: -1, completed: 0, running: true, canceled: false, error: null, result: null });
     const errors = [];
     const safe = async (name, fn) => {
       try { return await fn(); }
-      catch (error) { errors.push({ section: name, error: error?.message || String(error) }); return null; }
+      catch (error) {
+        if (progress.canceled) throw error;
+        errors.push({ section: name, error: error?.message || String(error) });
+        return null;
+      }
     };
+
+    try {
 
     const visibleProjectName = document.querySelector(".groupbar-name")?.textContent?.trim();
     if (!visibleProjectName) throw new Error("Open a project in Ruijie Cloud before exporting.");
@@ -253,13 +264,38 @@
 
     const safeName = visibleProjectName.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").slice(0, 80) || "project";
     const date = new Date().toISOString().slice(0, 10);
-    progress.running = false;
     return {
       filename: `ruijie-${safeName}-${date}.json`,
       json: JSON.stringify(snapshot, null, 2),
       summary: { devices: devices.length, clients: clients?.length || 0, errors: errors.length }
     };
+    } finally {
+      progress.running = false;
+      controller = undefined;
+    }
   }
 
-  window.__ruijieCloudExporter = { run, redact, isAllowed, getProgress };
+  async function start() {
+    try {
+      const result = await run();
+      const url = URL.createObjectURL(new Blob([result.json], { type: "application/json" }));
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = result.filename;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 30_000);
+      progress.result = result.summary;
+    } catch (error) {
+      if (!progress.canceled) progress.error = error?.message || String(error);
+    }
+  }
+
+  function cancel() {
+    if (!progress.running) return false;
+    progress.canceled = true;
+    controller.abort();
+    return true;
+  }
+
+  window.__ruijieCloudExporter = { run, start, cancel, redact, isAllowed, getProgress };
 })();

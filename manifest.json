@@ -3,7 +3,7 @@
   "name": "Ruijie Cloud Project Export",
   "version": "0.1.1",
   "description": "Export the current Ruijie Cloud project as a read-only JSON snapshot.",
-  "permissions": ["activeTab", "downloads", "scripting"],
+  "permissions": ["activeTab", "scripting"],
   "host_permissions": ["https://cloud-as.ruijienetworks.com/*"],
   "action": {
     "default_title": "Export Ruijie project",

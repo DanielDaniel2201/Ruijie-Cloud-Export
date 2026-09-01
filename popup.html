@@ -9,8 +9,8 @@
       h1 { margin: 0 0 6px; font-size: 18px; }
       p { margin: 0 0 14px; color: #596579; }
       button { display: flex; justify-content: center; width: 100%; border: 0; border-radius: 8px; padding: 10px 12px; color: white; background: #246bfd; font: inherit; font-weight: 650; cursor: pointer; }
-      button.exporting { justify-content: space-between; }
       button:disabled { cursor: wait; opacity: .75; }
+      #cancel { margin-top: 8px; color: #b42318; background: #fee4e2; }
       #progress { min-height: 84px; margin-top: 12px; }
       .progress-row { display: flex; align-items: center; min-height: 28px; gap: 9px; color: #596579; }
       .progress-row.active { color: #172033; }
@@ -28,6 +28,7 @@
     <h1>Ruijie Project Export</h1>
     <p>Read-only. Downloads one local JSON snapshot.</p>
     <button id="export" type="button">Export current project</button>
+    <button id="cancel" type="button" hidden>Cancel export</button>
     <div id="progress" role="status" aria-live="polite" hidden></div>
     <div id="status" role="status" aria-live="polite"></div>
     <script src="popup.js"></script>

@@ -1,6 +1,9 @@
 const button = document.querySelector("#export");
+const cancelButton = document.querySelector("#cancel");
 const progressList = document.querySelector("#progress");
 const status = document.querySelector("#status");
+let tabId;
+let polling = false;
 let shownCurrent = -1;
 let latestProgress;
 let transitionTimer;
@@ -26,15 +29,6 @@ function drawProgress(progress) {
   }));
 }
 
-function showExportCount(current, total) {
-  const label = document.createElement("span");
-  const count = document.createElement("span");
-  label.textContent = "Exporting";
-  count.textContent = `${current}/${total}`;
-  button.className = "exporting";
-  button.replaceChildren(label, count);
-}
-
 function renderProgress(progress) {
   latestProgress = progress;
   if (!progress.items.length) {
@@ -43,7 +37,7 @@ function renderProgress(progress) {
   }
 
   const total = progress.items.length;
-  showExportCount(Math.min(Math.max(progress.current + 1, progress.completed), total), total);
+  button.textContent = `Exporting ${Math.min(Math.max(progress.current + 1, progress.completed), total)}/${total}`;
   progressList.hidden = false;
 
   if (shownCurrent < 0) shownCurrent = progress.current;
@@ -61,66 +55,112 @@ function renderProgress(progress) {
   if (!transitionTimer) drawProgress(progress);
 }
 
+async function getTab() {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id || !tab.url?.startsWith("https://cloud-as.ruijienetworks.com/macc5/")) {
+    throw new Error("Open a Ruijie Cloud project page first.");
+  }
+  tabId = tab.id;
+  return tab;
+}
+
+async function readProgress() {
+  const [{ result }] = await chrome.scripting.executeScript({
+    target: { tabId },
+    func: () => window.__ruijieCloudExporter?.getProgress?.() || null,
+    world: "MAIN"
+  });
+  return result;
+}
+
+function setRunning(running) {
+  button.disabled = running;
+  cancelButton.hidden = !running;
+}
+
+async function poll() {
+  if (polling) return;
+  polling = true;
+  while (polling) {
+    try {
+      const progress = await readProgress();
+      if (!progress) break;
+      renderProgress(progress);
+      if (!progress.running) {
+        if (progress.canceled) {
+          status.className = "";
+          status.textContent = "Export cancelled.";
+        } else if (progress.error) {
+          status.className = "error";
+          status.textContent = progress.error;
+        } else if (progress.result) {
+          status.className = "ok";
+          status.textContent = `${progress.result.devices} devices, ${progress.result.clients} clients\n${progress.result.errors} section error(s)`;
+        }
+        break;
+      }
+    } catch (error) {
+      status.className = "error";
+      status.textContent = error?.message || String(error);
+      break;
+    }
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  polling = false;
+  setRunning(false);
+  button.textContent = "Export current project";
+}
+
 button.addEventListener("click", async () => {
-  button.disabled = true;
   status.className = "";
   status.textContent = "";
   progressList.hidden = true;
   shownCurrent = -1;
   clearTimeout(transitionTimer);
   transitionTimer = undefined;
-  let polling = true;
 
   try {
-    const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-    if (!tab?.id || !tab.url?.startsWith("https://cloud-as.ruijienetworks.com/macc5/")) {
-      throw new Error("Open a Ruijie Cloud project page first.");
-    }
-
-    await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      files: ["collector.js"],
-      world: "MAIN"
-    });
-
-    const readProgress = async () => {
-      const [{ result }] = await chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: () => window.__ruijieCloudExporter.getProgress(),
+    await getTab();
+    await chrome.scripting.executeScript({ target: { tabId }, files: ["collector.js"], world: "MAIN" });
+    const existing = await readProgress();
+    if (!existing.running) {
+      await chrome.scripting.executeScript({
+        target: { tabId },
+        func: () => { void window.__ruijieCloudExporter.start(); },
         world: "MAIN"
       });
-      renderProgress(result);
-    };
-    const poll = (async () => {
-      while (polling) {
-        try { await readProgress(); } catch {}
-        await new Promise(resolve => setTimeout(resolve, 100));
-      }
-    })();
-
-    const [{ result }] = await chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: () => window.__ruijieCloudExporter.run(),
-      world: "MAIN"
-    });
-    await readProgress();
-    polling = false;
-    await poll;
-
-    // ponytail: one JSON crosses the scripting boundary; add streaming/ZIP only if real projects hit Chrome's limit.
-    const url = URL.createObjectURL(new Blob([result.json], { type: "application/json" }));
-    await chrome.downloads.download({ url, filename: result.filename, saveAs: true });
-    setTimeout(() => URL.revokeObjectURL(url), 30_000);
-
-    status.className = "ok";
-    status.textContent = `${result.summary.devices} devices, ${result.summary.clients} clients\n${result.summary.errors} section error(s)`;
+    }
+    setRunning(true);
+    await poll();
   } catch (error) {
+    setRunning(false);
     status.className = "error";
     status.textContent = error?.message || String(error);
-  } finally {
-    polling = false;
-    button.disabled = false;
-    button.className = "";
-    button.textContent = "Export current project";
   }
 });
+
+cancelButton.addEventListener("click", async () => {
+  cancelButton.disabled = true;
+  status.className = "";
+  status.textContent = "Cancelling…";
+  try {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      func: () => window.__ruijieCloudExporter.cancel(),
+      world: "MAIN"
+    });
+  } finally {
+    cancelButton.disabled = false;
+  }
+});
+
+(async () => {
+  try {
+    await getTab();
+    const progress = await readProgress();
+    if (progress?.running) {
+      setRunning(true);
+      await poll();
+    }
+  } catch {}
+})();

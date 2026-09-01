@@ -21,6 +21,7 @@ const replies = envelope => {
   return { code: 0 };
 };
 const sandbox = {
+  AbortController,
   AbortSignal,
   Date,
   URL,
@@ -59,10 +60,22 @@ assert.deepEqual(JSON.parse(JSON.stringify(getProgress())), {
   ],
   current: 12,
   completed: 13,
-  running: false
+  running: false,
+  canceled: false,
+  error: null,
+  result: null
 });
 assert.equal(snapshot.wireless.wifi[0].data.ssidList[0].password, "[REDACTED]");
 assert.equal(snapshot.portalAuth.policies.data[0].policyName, "Guest portal");
 assert.ok(requests.every(request => isAllowed(request.api, request.method)));
+
+sandbox.fetch = (_url, options) => new Promise((_resolve, reject) => {
+  options.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+});
+const canceledRun = sandbox.window.__ruijieCloudExporter.run();
+assert.equal(sandbox.window.__ruijieCloudExporter.cancel(), true);
+await assert.rejects(canceledRun, /aborted/);
+assert.equal(getProgress().running, false);
+assert.equal(getProgress().canceled, true);
 
 console.log("collector safety checks passed");
