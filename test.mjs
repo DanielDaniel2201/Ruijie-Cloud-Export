@@ -53,7 +53,10 @@ const result = await sandbox.window.__ruijieCloudExporter.run();
 const snapshot = JSON.parse(result.json);
 assert.equal(result.summary.devices, 3);
 assert.equal(result.summary.clients, 1);
-assert.deepEqual(JSON.parse(JSON.stringify(getProgress())), {
+const finishedProgress = JSON.parse(JSON.stringify(getProgress()));
+assert.equal(typeof finishedProgress.startedAt, "number");
+delete finishedProgress.startedAt;
+assert.deepEqual(finishedProgress, {
   items: [
     "Client data", "Wireless templates", "Device 1: GW1", "Device 2: SW1", "Device 3: AP1",
     "Project overview", "Topology", "Client statistics", "Wireless settings", "Portal authentication", "Active alarms", "Cleared alarms", "Operation log"

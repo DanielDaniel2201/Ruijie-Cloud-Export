@@ -46,7 +46,7 @@
     ["GET", /^\/enet\/airoam\/group\/\d+\/conf$/]
   ];
 
-  const progress = { items: [], current: -1, completed: 0, running: false, canceled: false, error: null, result: null };
+  const progress = { items: [], current: -1, completed: 0, running: false, startedAt: null, canceled: false, error: null, result: null };
   let controller;
   const getProgress = () => ({ ...progress, items: [...progress.items] });
 
@@ -109,7 +109,7 @@
     if (progress.running) throw new Error("An export is already running.");
     const wants = key => !selected || selected.includes(key);
     controller = new AbortController();
-    Object.assign(progress, { items: [], current: -1, completed: 0, running: true, canceled: false, error: null, result: null });
+    Object.assign(progress, { items: [], current: -1, completed: 0, running: true, startedAt: null, canceled: false, error: null, result: null });
     const errors = [];
     const safe = async (name, fn) => {
       try { return await fn(); }
@@ -154,6 +154,7 @@
       ...(wants("alarms.cleared") ? ["Cleared alarms"] : []),
       ...(wants("operationLog") ? ["Operation log"] : [])
     ];
+    progress.startedAt = Date.now();
     const exportItem = async fn => {
       const index = ++progress.current;
       try { return await fn(); }

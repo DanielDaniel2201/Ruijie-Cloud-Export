@@ -2,6 +2,7 @@ const button = document.querySelector("#export");
 const cancelButton = document.querySelector("#cancel");
 const progressList = document.querySelector("#progress");
 const status = document.querySelector("#status");
+const eta = document.querySelector("#eta");
 const preview = document.querySelector("#preview");
 const selectAll = document.querySelector("#select-all");
 const allCount = document.querySelector("#all-count");
@@ -39,8 +40,21 @@ function drawProgress(progress) {
   }));
 }
 
+function formatDuration(seconds) {
+  if (seconds < 60) return `${seconds}s`;
+  return `${Math.floor(seconds / 60)}m ${seconds % 60}s`;
+}
+
 function renderProgress(progress) {
   latestProgress = progress;
+  if (!progress.running) {
+    eta.textContent = "";
+  } else if (!progress.startedAt || !progress.completed) {
+    eta.textContent = "Estimated remaining: calculating…";
+  } else {
+    const remaining = Math.ceil((Date.now() - progress.startedAt) / progress.completed * (progress.items.length - progress.completed) / 1000);
+    eta.textContent = `Estimated remaining: ${formatDuration(Math.max(0, remaining))}`;
+  }
   if (!progress.items.length) {
     button.textContent = "Preparing export…";
     return;
@@ -149,6 +163,7 @@ button.addEventListener("click", async () => {
   status.className = "";
   status.textContent = "";
   progressList.hidden = true;
+  eta.textContent = "Estimated remaining: calculating…";
   shownCurrent = -1;
   clearTimeout(transitionTimer);
   transitionTimer = undefined;

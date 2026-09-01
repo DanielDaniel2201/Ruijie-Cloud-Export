@@ -18,7 +18,8 @@
       #preview summary { cursor: pointer; font-weight: 650; }
       #preview .count { float: right; color: #7a8598; font-size: 12px; font-weight: 500; }
       #preview input { margin-right: 7px; }
-      #progress { min-height: 84px; margin-top: 12px; }
+      #eta { margin-top: 10px; color: #596579; font-size: 12px; }
+      #progress { min-height: 84px; margin-top: 6px; }
       .progress-row { display: flex; align-items: center; min-height: 28px; gap: 9px; color: #596579; }
       .progress-row.active { color: #172033; }
       .progress-row span:first-child { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -64,6 +65,7 @@
     </div>
     <button id="export" type="button">Export selected sections</button>
     <button id="cancel" type="button" hidden>Cancel export</button>
+    <div id="eta" role="status" aria-live="polite"></div>
     <div id="progress" role="status" aria-live="polite" hidden></div>
     <div id="status" role="status" aria-live="polite"></div>
     <script src="popup.js"></script>
