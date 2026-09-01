@@ -144,7 +144,10 @@
     progress.items = [
       ...(wants("clients.data") ? ["Client data"] : []),
       ...(wants("wireless.templates") ? ["Wireless templates"] : []),
-      ...(wants("devices") ? devices.map((device, index) => `Device ${index + 1}: ${device.name || device.serialNumber || "Unknown"}`) : []),
+      ...(wants("devices") ? [
+        ...devices.filter(device => !/AP|BRIDGE/.test(String(device.commonType || device.productType || "").toUpperCase())).map((device, index) => `Device ${index + 1}: ${device.name || device.serialNumber || "Unknown"}`),
+        ...(devices.some(device => /AP|BRIDGE/.test(String(device.commonType || device.productType || "").toUpperCase())) ? ["Wireless devices"] : [])
+      ] : []),
       ...(wants("project.overview") ? ["Project overview"] : []),
       ...(wants("topology") ? ["Topology"] : []),
       ...(wants("clients.statistics") ? ["Client statistics"] : []),
@@ -178,7 +181,7 @@
     }) : undefined;
 
     const deviceSnapshots = [];
-    if (wants("devices")) for (const device of devices) deviceSnapshots.push(await exportItem(async () => {
+    const collectDevice = async device => {
       const sn = encodeURIComponent(device.serialNumber);
       const type = String(device.commonType || device.productType || "").toUpperCase();
       const common = {
@@ -218,7 +221,21 @@
         };
       }
       return common;
-    }));
+    };
+    if (wants("devices")) {
+      const wirelessDevices = devices.filter(device => /AP|BRIDGE/.test(String(device.commonType || device.productType || "").toUpperCase()));
+      for (const device of devices.filter(device => !wirelessDevices.includes(device))) {
+        deviceSnapshots.push(await exportItem(() => collectDevice(device)));
+      }
+      if (wirelessDevices.length) deviceSnapshots.push(...await exportItem(async () => {
+        const item = progress.current;
+        let completed = 0;
+        return mapLimit(wirelessDevices, 4, async device => {
+          try { return await collectDevice(device); }
+          finally { progress.items[item] = `Wireless devices ${++completed}/${wirelessDevices.length}`; }
+        });
+      }));
+    }
 
     const projectOverview = wants("project.overview") ? await exportItem(async () => ({
       summary: await safe("project.summary", () => call(`/maint/statistic/deviceinfo?group_id=${encodedGroup}`)),

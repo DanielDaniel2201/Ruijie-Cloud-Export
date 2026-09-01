@@ -3,6 +3,8 @@ import fs from "node:fs";
 import vm from "node:vm";
 
 const requests = [];
+let activeApRequests = 0;
+let maxActiveApRequests = 0;
 const replies = envelope => {
   if (envelope.api.startsWith("/maint/network/common/list")) {
     return { code: 0, dataList: [{ buildingId: 7, name: "Demo" }] };
@@ -11,7 +13,10 @@ const replies = envelope => {
     return { code: 0, deviceList: [
       { serialNumber: "GW1", commonType: "GATEWAY" },
       { serialNumber: "SW1", commonType: "SWITCH" },
-      { serialNumber: "AP1", commonType: "AP" }
+      { serialNumber: "AP1", commonType: "AP" },
+      { serialNumber: "AP2", commonType: "AP" },
+      { serialNumber: "AP3", commonType: "AP" },
+      { serialNumber: "AP4", commonType: "AP" }
     ] };
   }
   if (envelope.api === "/network/current/user/global/page") return { code: 0, list: [{ mac: "00:11" }] };
@@ -29,6 +34,11 @@ const sandbox = {
   fetch: async (_url, options) => {
     const envelope = JSON.parse(options.body);
     requests.push(envelope);
+    if (/^\/maint\/device\/AP/.test(envelope.api)) {
+      maxActiveApRequests = Math.max(maxActiveApRequests, ++activeApRequests);
+      await new Promise(resolve => setTimeout(resolve, 5));
+      activeApRequests--;
+    }
     return { ok: true, json: async () => replies(envelope) };
   },
   location: { origin: "https://cloud-as.ruijienetworks.com" },
@@ -51,14 +61,15 @@ assert.equal(isAllowed("/intl/auth/v2/policy/7", "POST"), false);
 
 const result = await sandbox.window.__ruijieCloudExporter.run();
 const snapshot = JSON.parse(result.json);
-assert.equal(result.summary.devices, 3);
+assert.equal(result.summary.devices, 6);
 assert.equal(result.summary.clients, 1);
+assert.equal(maxActiveApRequests, 4);
 const finishedProgress = JSON.parse(JSON.stringify(getProgress()));
 assert.equal(typeof finishedProgress.startedAt, "number");
 delete finishedProgress.startedAt;
 assert.deepEqual(finishedProgress, {
   items: [
-    "Client data", "Wireless templates", "Device 1: GW1", "Device 2: SW1", "Device 3: AP1",
+    "Client data", "Wireless templates", "Device 1: GW1", "Device 2: SW1", "Wireless devices 4/4",
     "Project overview", "Topology", "Client statistics", "Wireless settings", "Portal authentication", "Active alarms", "Cleared alarms", "Operation log"
   ],
   current: 12,
