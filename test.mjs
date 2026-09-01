@@ -17,6 +17,7 @@ const replies = envelope => {
   if (envelope.api === "/network/current/user/global/page") return { code: 0, list: [{ mac: "00:11" }] };
   if (envelope.api === "/conf/group/7/templates") return { code: 0, tempList: [{ id: 9 }] };
   if (envelope.api === "/conf/wifi_grp/wifi") return { code: 0, data: { ssidList: [{ ssidName: "Demo", password: "secret" }] } };
+  if (envelope.api.startsWith("/intl/auth/v2/policy/")) return { code: 0, data: [{ policyName: "Guest portal", policyEnable: true }] };
   return { code: 0 };
 };
 const sandbox = {
@@ -44,6 +45,8 @@ assert.equal(isAllowed("/maint/device/SN1", "GET"), true);
 assert.equal(isAllowed("/maint/device/SN1", "POST"), false);
 assert.equal(isAllowed("/llm-im/deleteGPTHistory", "GET"), false);
 assert.equal(isAllowed("/enet/conf/group/1/password_status", "GET"), false);
+assert.equal(isAllowed("/intl/auth/v2/policy/7?page_index=1", "GET"), true);
+assert.equal(isAllowed("/intl/auth/v2/policy/7", "POST"), false);
 
 const result = await sandbox.window.__ruijieCloudExporter.run();
 const snapshot = JSON.parse(result.json);
@@ -52,13 +55,14 @@ assert.equal(result.summary.clients, 1);
 assert.deepEqual(JSON.parse(JSON.stringify(getProgress())), {
   items: [
     "Client data", "Wireless templates", "Device 1: GW1", "Device 2: SW1", "Device 3: AP1",
-    "Project overview", "Topology", "Client statistics", "Wireless settings", "Active alarms", "Cleared alarms", "Operation log"
+    "Project overview", "Topology", "Client statistics", "Wireless settings", "Portal authentication", "Active alarms", "Cleared alarms", "Operation log"
   ],
-  current: 11,
-  completed: 12,
+  current: 12,
+  completed: 13,
   running: false
 });
 assert.equal(snapshot.wireless.wifi[0].data.ssidList[0].password, "[REDACTED]");
+assert.equal(snapshot.portalAuth.policies.data[0].policyName, "Guest portal");
 assert.ok(requests.every(request => isAllowed(request.api, request.method)));
 
 console.log("collector safety checks passed");

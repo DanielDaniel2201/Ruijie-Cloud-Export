@@ -17,6 +17,8 @@
     ["GET", /^\/conf\/group\/\d+\/templates$/],
     ["GET", /^\/conf\/radio\/global\/config$/],
     ["GET", /^\/conf\/wifi_grp\/wifi$/],
+    ["GET", /^\/intl\/auth\/v2\/(?:policy|ability|global)\/\d+$/],
+    ["GET", /^\/intl\/auth\/v2\/group\/\d+\/ssids$/],
     ["GET", /^\/device-ability\/list\/[^/]+$/],
     ["GET", /^\/device-ability$/],
     ["GET", /^\/sys\/current_performance$/],
@@ -135,6 +137,7 @@
       "Topology",
       "Client statistics",
       "Wireless settings",
+      "Portal authentication",
       "Active alarms",
       "Cleared alarms",
       "Operation log"
@@ -219,6 +222,12 @@
       loadBalancing: await safe("wireless.loadBalancing", () => call(`/nbc/ap_lb/conf?group_id=${encodedGroup}`)),
       aiRoaming: await safe("wireless.aiRoaming", () => call(`/enet/airoam/group/${encodedGroup}/conf`))
     }));
+    const portalAuth = await exportItem(async () => ({
+      policies: await safe("portalAuth.policies", () => call(`/intl/auth/v2/policy/${encodedGroup}?page_index=1&page_size=9999`, { querys: { show_temp_nbr: 1 } })),
+      ability: await safe("portalAuth.ability", () => call(`/intl/auth/v2/ability/${encodedGroup}`, { querys: { show_temp_nbr: 1 } })),
+      global: await safe("portalAuth.global", () => call(`/intl/auth/v2/global/${encodedGroup}`)),
+      ssids: await safe("portalAuth.ssids", () => call(`/intl/auth/v2/group/${encodedGroup}/ssids`))
+    }));
     const activeAlarms = await exportItem(() => safe("alarms.active", () => call(`/warn/warnlog?group_id=${encodedGroup}&page=1&per_page=9999&is_eliminate=false`)));
     const clearedAlarms = await exportItem(() => safe("alarms.cleared", () => call(`/warn/warnlog?group_id=${encodedGroup}&page=1&per_page=9999&is_eliminate=true`)));
     const operationLog = await exportItem(() => safe("operationLog", () => call(`/operationlog/list?start=${now - 30 * 86_400_000}&end=${now}&page=1&per_page=9999`)));
@@ -235,6 +244,7 @@
       clients,
       clientStatistics,
       wireless: { ...wirelessSettings, ...wirelessTemplates },
+      portalAuth,
       alarms: { active: activeAlarms, cleared: clearedAlarms },
       operationLog,
       devices: deviceSnapshots,

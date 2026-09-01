@@ -24,6 +24,7 @@ The extension uses the current Ruijie Cloud session without reading Cookie or lo
 - Switch ports/status, VLANs, uplink and neighbors
 - AP/bridge radio abilities, ports, VLANs and client health counts
 - Radio settings, Wi-Fi templates/SSIDs, load balancing and AI roaming settings
+- Portal authentication policies, capabilities, global settings and associated SSIDs
 - Active/cleared alarms and the last 30 days of operation logs
 
 Unsupported or failed sections are recorded in the top-level `errors` array instead of aborting the export.

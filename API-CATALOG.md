@@ -19,6 +19,7 @@ The browser sends all business calls to outer `POST /webproxy/common/api`. The J
 | AP | `GET /enet/port/conf`, `/enet/vlan_list` | AP port and VLAN configuration |
 | Radio | `GET /conf/radio/global/config` | country, bands, widths, limits, RSSI and DFS |
 | Wi-Fi | `GET /conf/wifi_grp/wifi` | SSID, bands, VLAN, security mode, roaming and isolation |
+| Portal auth | `GET /intl/auth/v2/policy/{groupId}` | Portal policies, enabled state, mode, auth device and network bindings |
 | Alarms | `GET /warn/warnlog` | active/cleared alarms and totals |
 | Operations | `GET /operationlog/list` | time, action description, result and actor metadata |
 
