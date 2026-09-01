@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-这是一个只读 Chrome 扩展，用于把当前打开的锐捷云项目导出为一个本地 JSON 快照。它不会上传数据，也不会调用 AI 服务。导出期间即使关闭弹窗，扩展图标右下角仍会显示运行标记。
+这是一个只读 Chrome 扩展，用于把当前打开的锐捷云项目导出为本地 JSON 快照，也可以通过本地 MCP Server 让 Agent 按需读取项目信息。普通导出不会上传数据或调用 AI；启用 MCP 后，脱敏后的工具结果会交给用户配置的 MCP Client。导出期间即使关闭弹窗，扩展图标右下角仍会显示运行标记。
 
 ## 加载扩展
 
@@ -12,7 +12,31 @@
 4. 打开 `https://cloud-as.ruijienetworks.com/macc5/` 中的一个项目。
 5. 打开扩展，点击 **Export current project**。
 
-扩展会复用当前锐捷云登录状态，但不会读取 Cookie 或 localStorage 的值。它只能调用显式白名单中的只读操作。密码、PSK、token、Cookie、secret、credential、私钥、SNMP community、access key 和 user signature 字段都会替换为 `[REDACTED]`。
+扩展会复用当前锐捷云登录状态，但不会读取 Cookie 或 localStorage 的值。它只能调用显式白名单中的只读操作。密码、PSK、token、Cookie、secret、credential、私钥、SNMP community、access key 和 user signature 字段都会在离开浏览器前替换为 `[REDACTED]`。IP、MAC、SN、SSID 和用户名作为诊断数据保留。
+
+## Agent / MCP
+
+1. 安装本地依赖：`npm install`。
+2. 生成一个至少 16 字符的随机配对 Token。
+3. 重新加载扩展，打开锐捷项目，在扩展的 **MCP agent connection** 中填写端口（默认 `32145`）和 Token，然后启用连接。
+4. 在 MCP Client 中添加：
+
+```json
+{
+  "mcpServers": {
+    "ruijie-cloud": {
+      "command": "node",
+      "args": ["D:/projects/ruijie-cloud-export/mcp-server.mjs"],
+      "env": {
+        "RUIJIE_MCP_TOKEN": "替换为同一个随机 Token",
+        "RUIJIE_MCP_PORT": "32145"
+      }
+    }
+  }
+}
+```
+
+MCP Server 只监听 `127.0.0.1`。保持一个锐捷项目标签页处于活动状态。Agent 可使用 `get_project_context`、`get_device_info`、`get_device_network` 和 `get_alarms`；设备 SN 必须来自当前项目，不能调用任意 API 或写操作。
 
 ## 导出范围
 

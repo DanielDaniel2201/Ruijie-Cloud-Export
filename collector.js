@@ -1,7 +1,7 @@
 (() => {
   if (window.__ruijieCloudExporter?.getProgress?.().running) return;
 
-  const SECRET_KEY = /pass(word)?|pwd|psk|secret|token|cookie|credential|private.?key|community|user.?sig|access.?key/i;
+  const SECRET_KEY = /pass(word)?|pwd|psk|secret|token|cookie|credential|authorization|session.?id|private.?key|api.?key|community|user.?sig|access.?key/i;
   const ALLOWED = [
     ["GET", /^\/maint\/network\/common\/list$/],
     ["GET", /^\/maint\/statistic\/deviceinfo$/],
@@ -60,7 +60,7 @@
 
   async function call(api, { method = "GET", module = "default", querys = {}, params } = {}) {
     if (!isAllowed(api, method)) throw new Error(`Blocked non-whitelisted request: ${method} ${pathOf(api)}`);
-    const runSignal = controller.signal;
+    const runSignal = controller?.signal;
     if (activeRequests >= REQUEST_CONCURRENCY) await new Promise(resolve => requestQueue.push(resolve));
     else activeRequests++;
     try {
@@ -78,14 +78,12 @@
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(envelope),
-        signal: AbortSignal.any([runSignal, AbortSignal.timeout(20_000)])
+        signal: runSignal ? AbortSignal.any([runSignal, AbortSignal.timeout(20_000)]) : AbortSignal.timeout(20_000)
       });
       if (!response.ok) throw new Error(`${response.status} ${pathOf(api)}`);
 
       const data = await response.json();
-      if (typeof data?.code === "number" && data.code !== 0) {
-        throw new Error(`${pathOf(api)}: ${data.msg || `code ${data.code}`}`);
-      }
+      if (typeof data?.code === "number" && data.code !== 0) throw new Error(`${pathOf(api)}: code ${data.code}`);
       return data;
     } finally {
       const next = requestQueue.shift();
@@ -279,6 +277,177 @@
     Object.entries(fields).map(async ([key, fn]) => [key, await fn()])
   ));
 
+  async function resolveProject() {
+    const visibleProjectName = document.querySelector(".groupbar-name")?.textContent?.trim();
+    if (!visibleProjectName) throw new Error("Open a project in Ruijie Cloud first.");
+
+    const projectsResponse = await call("/maint/network/common/list?page_index=1&page_size=999&version=1&include_fitap=true");
+    const projects = projectsResponse.dataList || [];
+    const matches = projects.filter(project => project.name === visibleProjectName);
+    const project = matches.length === 1 ? matches[0] : projects.length === 1 ? projects[0] : null;
+    if (!project) throw new Error(`Could not uniquely match the open project: ${visibleProjectName}`);
+
+    const groupId = project.buildingId;
+    const deviceResponse = await call("/maint/devices/list?page=1&per_page=9999", {
+      method: "POST",
+      params: { groupId, commonType: "" }
+    });
+    return { visibleProjectName, project, groupId, devices: deviceResponse.deviceList || [] };
+  }
+
+  const kindOf = device => {
+    const type = String(device.commonType || device.productType || "").toUpperCase();
+    if (type.includes("GATEWAY")) return "gateway";
+    if (type.includes("SWITCH")) return "switch";
+    if (type.includes("AP") || type.includes("BRIDGE")) return "wireless";
+    return "unknown";
+  };
+  const NETWORK_SECTIONS = {
+    gateway: ["interfaces", "wan", "ports", "vlans", "dhcp"],
+    switch: ["ports", "vlans", "vlanMode", "uplink", "neighbors"],
+    wireless: ["radio", "ports", "vlans", "clients"],
+    unknown: []
+  };
+  const INFO_SECTIONS = ["detail", "ability", "performance", "history", "topology"];
+
+  function summarizeDevice(device) {
+    const kind = kindOf(device);
+    return {
+      sn: device.serialNumber,
+      name: device.name || device.aliasName,
+      model: device.productClass || device.productType,
+      type: kind,
+      onlineStatus: device.onlineStatus,
+      ip: device.localIp || device.cpeIp,
+      mac: device.mac,
+      availableInfoSections: INFO_SECTIONS,
+      availableNetworkSections: NETWORK_SECTIONS[kind]
+    };
+  }
+
+  function requestedSections(value, available) {
+    if (value === undefined) return available;
+    if (!Array.isArray(value) || !value.length || value.some(section => typeof section !== "string")) {
+      throw new Error("sections must be a non-empty array of strings.");
+    }
+    const sections = [...new Set(value)];
+    const invalid = sections.filter(section => !available.includes(section));
+    if (invalid.length) throw new Error(`Unsupported section(s): ${invalid.join(", ")}. Available: ${available.join(", ") || "none"}.`);
+    return sections;
+  }
+
+  async function collectToolSections(definitions, sections) {
+    const errors = [];
+    const values = await Promise.all(sections.map(async section => {
+      try { return [section, await definitions[section]()]; }
+      catch (error) {
+        errors.push({ section, error: error?.message || String(error) });
+        return [section, undefined];
+      }
+    }));
+    return { ...Object.fromEntries(values), ...(errors.length ? { errors } : {}) };
+  }
+
+  function findDevice(context, deviceSn) {
+    if (typeof deviceSn !== "string" || !deviceSn || deviceSn.length > 128) throw new Error("deviceSn is required.");
+    const device = context.devices.find(item => item.serialNumber === deviceSn);
+    if (!device) throw new Error(`Device does not belong to the current project: ${deviceSn}`);
+    return device;
+  }
+
+  async function getProjectContext(context) {
+    const encodedGroup = encodeURIComponent(context.groupId);
+    return {
+      project: context.project,
+      devices: context.devices.map(summarizeDevice),
+      ...await collectToolSections({
+        summary: () => call(`/maint/statistic/deviceinfo?group_id=${encodedGroup}`),
+        networkModel: () => call(`/maint/network/model/detail?group_id=${encodedGroup}`)
+      }, ["summary", "networkModel"])
+    };
+  }
+
+  async function getDeviceInfo(context, args) {
+    const device = findDevice(context, args.deviceSn);
+    const sn = encodeURIComponent(device.serialNumber);
+    const now = Date.now();
+    const sections = requestedSections(args.sections, INFO_SECTIONS);
+    return {
+      device: summarizeDevice(device),
+      ...await collectToolSections({
+        detail: () => call(`/maint/device/${sn}`),
+        ability: () => call(`/device-ability/list/${sn}?businessId=DETAIL_PAGE&version=2`),
+        performance: () => call(`/sys/current_performance?sn=${sn}`, { module: "logbiz" }),
+        history: () => call(`/device/history/onoff/${sn}?begin=${now - 86_400_000}&end=${now}`),
+        topology: () => call("/topology/link/info", { querys: { group_id: context.groupId, sn: device.serialNumber } })
+      }, sections)
+    };
+  }
+
+  async function getDeviceNetwork(context, args) {
+    const device = findDevice(context, args.deviceSn);
+    const kind = kindOf(device);
+    const available = NETWORK_SECTIONS[kind];
+    if (!available.length) throw new Error(`Network details are not supported for device type: ${kind}`);
+    const sections = requestedSections(args.sections, available);
+    const sn = encodeURIComponent(device.serialNumber);
+    const rawSn = device.serialNumber;
+    const definitions = kind === "gateway" ? {
+      interfaces: () => call(`/gateway/intf/info/${sn}`),
+      wan: () => call("/smartdiagnosis/wan-detect/device/status", { querys: { sn: rawSn } }),
+      ports: () => call(`/egw/conf/device/${sn}/port/1`),
+      vlans: () => call(`/egw/conf/device/${sn}/vlan`),
+      dhcp: () => call(`/gateway/intf/unuseddhcp?sn=${sn}`)
+    } : kind === "switch" ? {
+      ports: () => collectFields({
+        configuration: () => call(`/smartscene/device/switch/ports?sn=${sn}`),
+        status: () => call(`/conf/switch/device/${sn}/ports`, { querys: { page_size: 9999, page_index: 1, include_ag: true } })
+      }),
+      vlans: () => call("/smartscene/device/conf/vlan", { querys: { sn: rawSn } }),
+      vlanMode: () => call("/conf/esw/vlan_mode", { querys: { sn: rawSn } }),
+      uplink: () => call(`/switch/uplinkport/${sn}`),
+      neighbors: () => call(`/switch/neighbor/${sn}`, { querys: { page: 1, per_page: 9999 } })
+    } : {
+      radio: () => call("/conf/radio/product_ability", { querys: { sn: rawSn } }),
+      ports: () => collectFields({
+        configuration: () => call(`/enet/port/conf?sn=${sn}`),
+        status: () => call(`/enet/port/list?sn=${sn}`)
+      }),
+      vlans: () => call(`/enet/vlan_list?sn=${sn}`),
+      clients: () => collectFields({
+        count: () => call(`/sta/device/user/count?sn_list=${sn}`, { module: "logbiz" }),
+        weakSignalCount: () => call(`/sta/bad_rssi_user_count?sn=${sn}`, { module: "logbiz" })
+      })
+    };
+    return { device: summarizeDevice(device), ...await collectToolSections(definitions, sections) };
+  }
+
+  async function getAlarms(context, args) {
+    const state = args.state ?? "active";
+    if (state !== "active" && state !== "cleared") throw new Error("state must be active or cleared.");
+    const limit = args.limit ?? 50;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new Error("limit must be an integer from 1 to 200.");
+    if (args.deviceSn !== undefined) findDevice(context, args.deviceSn);
+    const encodedGroup = encodeURIComponent(context.groupId);
+    const response = await call(`/warn/warnlog?group_id=${encodedGroup}&page=1&per_page=${limit}&is_eliminate=${state === "cleared"}`);
+    return { state, ...(args.deviceSn ? { requestedDeviceSn: args.deviceSn } : {}), alarms: response };
+  }
+
+  async function invokeTool(toolName, args = {}) {
+    if (progress.running) throw new Error("Wait for the current export to finish.");
+    if (!args || typeof args !== "object" || Array.isArray(args)) throw new Error("Tool arguments must be an object.");
+    const handlers = {
+      get_project_context: getProjectContext,
+      get_device_info: getDeviceInfo,
+      get_device_network: getDeviceNetwork,
+      get_alarms: getAlarms
+    };
+    const handler = handlers[toolName];
+    if (!handler) throw new Error(`Unknown tool: ${toolName}`);
+    const context = await resolveProject();
+    return redact(normalize(await handler(context, args)));
+  }
+
   async function run(selected) {
     if (progress.running) throw new Error("An export is already running.");
     const wants = key => !selected || selected.includes(key);
@@ -297,21 +466,7 @@
     try {
     notifyExportState(true);
 
-    const visibleProjectName = document.querySelector(".groupbar-name")?.textContent?.trim();
-    if (!visibleProjectName) throw new Error("Open a project in Ruijie Cloud before exporting.");
-
-    const projectsResponse = await call("/maint/network/common/list?page_index=1&page_size=999&version=1&include_fitap=true");
-    const projects = projectsResponse.dataList || [];
-    const matches = projects.filter(project => project.name === visibleProjectName);
-    const project = matches.length === 1 ? matches[0] : projects.length === 1 ? projects[0] : null;
-    if (!project) throw new Error(`Could not uniquely match the open project: ${visibleProjectName}`);
-
-    const groupId = project.buildingId;
-    const deviceResponse = await call("/maint/devices/list?page=1&per_page=9999", {
-      method: "POST",
-      params: { groupId, commonType: "" }
-    });
-    const devices = deviceResponse.deviceList || [];
+    const { visibleProjectName, project, groupId, devices } = await resolveProject();
     const encodedGroup = encodeURIComponent(groupId);
     const now = Date.now();
     const dayAgo = now - 86_400_000;
@@ -493,5 +648,5 @@
     return true;
   }
 
-  window.__ruijieCloudExporter = { run, start, cancel, redact, isAllowed, getProgress, buildTopologyGraph, mergeClients, normalize };
+  window.__ruijieCloudExporter = { run, start, cancel, invokeTool, redact, isAllowed, getProgress, buildTopologyGraph, mergeClients, normalize };
 })();
