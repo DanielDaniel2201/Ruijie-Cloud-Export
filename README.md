@@ -18,8 +18,8 @@ The extension uses the current Ruijie Cloud session without reading Cookie or lo
 
 - Project metadata, device counts and network model
 - Device inventory, details, capabilities, runtime utilization and online history
-- Topology tree, terminals and per-device links, plus an AI-friendly normalized `nodes`/`links` graph
-- Current clients and client statistics
+- AI-friendly normalized `nodes`/`links` topology with an explicit availability reason
+- Deduplicated current clients and client statistics
 - Gateway interfaces, WAN health, VLAN and port configuration
 - Switch ports/status, VLANs, uplink and neighbors
 - AP/bridge radio abilities, ports, VLANs and client health counts
@@ -27,7 +27,7 @@ The extension uses the current Ruijie Cloud session without reading Cookie or lo
 - Portal authentication policies, capabilities, global settings and associated SSIDs
 - Active/cleared alarms and the last 30 days of operation logs
 
-Unsupported or failed sections are recorded in the top-level `errors` array instead of aborting the export.
+Unsupported or failed sections are recorded in the top-level `errors` array instead of aborting the export. Output uses compact JSON, omits empty values and successful API wrappers, and normalizes booleans, timestamps and common network metric units.
 
 ## Check
 

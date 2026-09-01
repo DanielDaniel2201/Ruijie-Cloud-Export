@@ -5,6 +5,8 @@ import vm from "node:vm";
 const requests = [];
 let activeApRequests = 0;
 let maxActiveApRequests = 0;
+let activeRequests = 0;
+let maxActiveRequests = 0;
 const replies = envelope => {
   if (envelope.api.startsWith("/maint/network/common/list")) {
     return { code: 0, dataList: [{ buildingId: 7, name: "Demo" }] };
@@ -19,7 +21,7 @@ const replies = envelope => {
       { serialNumber: "AP4", commonType: "AP" }
     ] };
   }
-  if (envelope.api === "/network/current/user/global/page") return { code: 0, list: [{ mac: "00:11" }] };
+  if (envelope.api === "/network/current/user/global/page") return { code: 0, list: [{ mac: "00:11", onlineTime: 1_700_000_000_000, activeSec: 60, upRate: "128", userName: "" }] };
   if (envelope.api === "/topology/generation/record/7") return { code: 0, data: { currentHasTopo: "true" } };
   if (envelope.api.startsWith("/topology/info/7")) return { code: 0, data: { sn: "GW1", children: [{ sn: "SW1" }] } };
   if (envelope.api === "/topology/terminal/info/7") return { code: 0, list: [{ sn: "AP1", details: [{ mac: "00:11", ip: "192.0.2.1", linkedPort: "Gi1" }] }] };
@@ -35,14 +37,21 @@ const sandbox = {
   URL,
   document: { querySelector: () => ({ textContent: "Demo" }) },
   fetch: async (_url, options) => {
-    const envelope = JSON.parse(options.body);
-    requests.push(envelope);
-    if (/^\/maint\/device\/AP/.test(envelope.api)) {
-      maxActiveApRequests = Math.max(maxActiveApRequests, ++activeApRequests);
-      await new Promise(resolve => setTimeout(resolve, 5));
-      activeApRequests--;
+    maxActiveRequests = Math.max(maxActiveRequests, ++activeRequests);
+    try {
+      const envelope = JSON.parse(options.body);
+      requests.push(envelope);
+      if (/^\/maint\/device\/AP/.test(envelope.api)) {
+        maxActiveApRequests = Math.max(maxActiveApRequests, ++activeApRequests);
+        await new Promise(resolve => setTimeout(resolve, 5));
+        activeApRequests--;
+      } else {
+        await new Promise(resolve => setTimeout(resolve, 1));
+      }
+      return { ok: true, json: async () => replies(envelope) };
+    } finally {
+      activeRequests--;
     }
-    return { ok: true, json: async () => replies(envelope) };
   },
   location: { origin: "https://cloud-as.ruijienetworks.com" },
   setTimeout,
@@ -67,30 +76,43 @@ const snapshot = JSON.parse(result.json);
 assert.equal(result.summary.devices, 6);
 assert.equal(result.summary.clients, 1);
 assert.equal(maxActiveApRequests, 4);
+assert.ok(maxActiveRequests > 4 && maxActiveRequests <= 8);
 const finishedProgress = JSON.parse(JSON.stringify(getProgress()));
 assert.equal(typeof finishedProgress.startedAt, "number");
+assert.equal(typeof finishedProgress.completedDurationMs, "number");
 delete finishedProgress.startedAt;
+delete finishedProgress.completedDurationMs;
 assert.deepEqual(finishedProgress, {
   items: [
-    "Client data", "Wireless templates", "Device 1: GW1", "Device 2: SW1", "Wireless devices 4/4",
-    "Project overview", "Topology", "Client statistics", "Wireless settings", "Portal authentication", "Active alarms", "Cleared alarms", "Operation log"
+    "Client data", "Wireless templates", "Devices 6/6", "Project overview", "Topology", "Client statistics",
+    "Wireless settings", "Portal authentication", "Active alarms", "Cleared alarms", "Operation log"
   ],
-  current: 12,
-  completed: 13,
+  current: 10,
+  completed: 11,
+  itemStartedAt: null,
   running: false,
   canceled: false,
   error: null,
   result: null
 });
-assert.equal(snapshot.wireless.wifi[0].data.ssidList[0].password, "[REDACTED]");
-assert.equal(snapshot.portalAuth.policies.data[0].policyName, "Guest portal");
-assert.equal(snapshot.topology.graph.infrastructureAvailable, true);
-assert.equal(snapshot.topology.graph.nodes.length, 7);
-assert.deepEqual(snapshot.topology.graph.links, [
+assert.equal(snapshot.version, 2);
+assert.equal(snapshot.wireless.wifi[0].ssidList[0].password, "[REDACTED]");
+assert.equal(snapshot.portalAuth.policies[0].policyName, "Guest portal");
+assert.equal(snapshot.clients.length, 1);
+assert.equal(snapshot.clients[0].connectedDeviceId, "AP1");
+assert.equal(snapshot.clients[0].onlineAt, "2023-11-14T22:13:20.000Z");
+assert.equal(snapshot.clients[0].activeSeconds, 60);
+assert.equal(snapshot.clients[0].uploadRateBps, 128);
+assert.equal("userName" in snapshot.clients[0], false);
+assert.equal(snapshot.topology.available, true);
+assert.equal(snapshot.topology.nodes.length, 7);
+assert.deepEqual(snapshot.topology.links, [
   { source: "GW1", target: "SW1", type: "infrastructure" },
   { source: "AP1", target: "client:00:11", type: "client", sourcePort: "Gi1" }
 ]);
-assert.equal(snapshot.topology.graph.unlinkedClients, 0);
+assert.equal(snapshot.topology.unlinkedClientCount, 0);
+assert.equal(result.json.includes("\n"), false);
+assert.equal(JSON.stringify(snapshot).includes('"code":0'), false);
 assert.ok(requests.every(request => isAllowed(request.api, request.method)));
 
 requests.length = 0;

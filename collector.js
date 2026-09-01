@@ -46,7 +46,11 @@
     ["GET", /^\/enet\/airoam\/group\/\d+\/conf$/]
   ];
 
-  const progress = { items: [], current: -1, completed: 0, running: false, startedAt: null, canceled: false, error: null, result: null };
+  const progress = { items: [], current: -1, completed: 0, completedDurationMs: 0, itemStartedAt: null, running: false, startedAt: null, canceled: false, error: null, result: null };
+  const REQUEST_CONCURRENCY = 8;
+  const DEVICE_CONCURRENCY = 6;
+  const requestQueue = [];
+  let activeRequests = 0;
   let controller;
   const getProgress = () => ({ ...progress, items: [...progress.items] });
 
@@ -55,30 +59,38 @@
 
   async function call(api, { method = "GET", module = "default", querys = {}, params } = {}) {
     if (!isAllowed(api, method)) throw new Error(`Blocked non-whitelisted request: ${method} ${pathOf(api)}`);
+    const runSignal = controller.signal;
+    if (activeRequests >= REQUEST_CONCURRENCY) await new Promise(resolve => requestQueue.push(resolve));
+    else activeRequests++;
+    try {
+      const envelope = {
+        api,
+        method,
+        module,
+        querys: { ...querys, lang: "en" },
+        authParams: { api, method }
+      };
+      if (params !== undefined) envelope.params = params;
 
-    const envelope = {
-      api,
-      method,
-      module,
-      querys: { ...querys, lang: "en" },
-      authParams: { api, method }
-    };
-    if (params !== undefined) envelope.params = params;
+      const response = await fetch("/webproxy/common/api", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(envelope),
+        signal: AbortSignal.any([runSignal, AbortSignal.timeout(20_000)])
+      });
+      if (!response.ok) throw new Error(`${response.status} ${pathOf(api)}`);
 
-    const response = await fetch("/webproxy/common/api", {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(envelope),
-      signal: AbortSignal.any([controller.signal, AbortSignal.timeout(20_000)])
-    });
-    if (!response.ok) throw new Error(`${response.status} ${pathOf(api)}`);
-
-    const data = await response.json();
-    if (typeof data?.code === "number" && data.code !== 0) {
-      throw new Error(`${pathOf(api)}: ${data.msg || `code ${data.code}`}`);
+      const data = await response.json();
+      if (typeof data?.code === "number" && data.code !== 0) {
+        throw new Error(`${pathOf(api)}: ${data.msg || `code ${data.code}`}`);
+      }
+      return data;
+    } finally {
+      const next = requestQueue.shift();
+      if (next) next();
+      else activeRequests--;
     }
-    return data;
   }
 
   function redact(value, key = "") {
@@ -91,6 +103,74 @@
       return value.replace(/([?&](?:access_token|token|key|sig)=)[^&]+/gi, "$1[REDACTED]");
     }
     return value;
+  }
+
+  const AI_KEYS = {
+    activeSec: "activeSeconds",
+    cpuRate: "cpuUtilizationPercent",
+    createTime: "createdAt",
+    diskRate: "diskUtilizationPercent",
+    downRate: "downloadRateBps",
+    downlinkRate: "downlinkRateBps",
+    eliminateTime: "eliminatedAt",
+    flashRate: "flashUtilizationPercent",
+    floorNoise: "noiseFloorDbm",
+    flowDown: "downloadedBytes",
+    flowUp: "uploadedBytes",
+    flowUpDown: "totalBytes",
+    inputRateBits: "inputRateBps",
+    lastOnline: "lastOnlineAt",
+    memoryRate: "memoryUtilizationPercent",
+    mloRssi: "mloRssiDbm",
+    onlineTime: "onlineAt",
+    outputRateBits: "outputRateBps",
+    pktLoseRate: "packetLossPercent",
+    rssi: "rssiDbm",
+    timeDelay: "latencyMs",
+    upRate: "uploadRateBps",
+    updateTime: "updatedAt",
+    uplinkRate: "uplinkRateBps",
+    utilization: "utilizationPercent"
+  };
+  const TIMESTAMPS = new Set(["createTime", "eliminateTime", "lastOnline", "onlineTime", "updateTime"]);
+  const UNIT_VALUES = new Set(Object.keys(AI_KEYS).filter(key => !TIMESTAMPS.has(key)));
+
+  function normalize(value, key = "") {
+    if (value === undefined || value === null || value === "") return;
+    if (value === "true" || value === "false") return value === "true";
+    if (TIMESTAMPS.has(key) && /^\d{10,13}$/.test(String(value))) {
+      const timestamp = Number(value);
+      return new Date(timestamp < 1e12 ? timestamp * 1000 : timestamp).toISOString();
+    }
+    if (UNIT_VALUES.has(key) && typeof value === "string" && /^-?\d+(?:\.\d+)?$/.test(value)) return Number(value);
+    if (Array.isArray(value)) {
+      const items = value.map(item => normalize(item)).filter(item => item !== undefined);
+      return items.length ? items : undefined;
+    }
+    if (value && typeof value === "object") {
+      const response = value.code === 0;
+      const entries = Object.entries(value)
+        .filter(([childKey]) => !response || (childKey !== "code" && childKey !== "msg"))
+        .map(([childKey, child]) => [AI_KEYS[childKey] || childKey, normalize(child, childKey)])
+        .filter(([, child]) => child !== undefined);
+      if (!entries.length) return;
+      if (response && entries.length === 1 && (entries[0][0] === "data" || entries[0][0] === "list")) return entries[0][1];
+      return Object.fromEntries(entries);
+    }
+    return value;
+  }
+
+  function mergeClients(clients, terminals) {
+    const byMac = new Map((clients || []).map((client, index) => [client.mac?.replace(/[^a-f\d]/gi, "").toLowerCase() || `missing:${index}`, client]));
+    for (const group of terminals?.list || []) {
+      for (const terminal of group.details || []) {
+        const key = terminal.mac?.replace(/[^a-f\d]/gi, "").toLowerCase();
+        if (!key) continue;
+        const connectedDeviceId = terminal.linkedDevice || (group.sn !== "unknown" ? group.sn : undefined);
+        byMac.set(key, { ...byMac.get(key), ...terminal, ...(connectedDeviceId ? { connectedDeviceId } : {}) });
+      }
+    }
+    return [...byMac.values()];
   }
 
   function buildTopologyGraph(devices, topology) {
@@ -171,14 +251,14 @@
     }
 
     const generation = topology?.generation?.data;
-    const infrastructureAvailable = generation?.currentHasTopo === true || generation?.currentHasTopo === "true";
+    const available = generation?.currentHasTopo === true || generation?.currentHasTopo === "true";
     const reason = value(generation?.topoUnsupportedModel, generation?.noTopoReason, generation?.topoIncompleteReason);
     return {
-      infrastructureAvailable,
+      available,
       ...(reason ? { reason } : {}),
       nodes: [...nodes.values()],
       links: [...links.values()],
-      unlinkedClients
+      unlinkedClientCount: unlinkedClients
     };
   }
 
@@ -194,11 +274,15 @@
     return results;
   }
 
+  const collectFields = async fields => Object.fromEntries(await Promise.all(
+    Object.entries(fields).map(async ([key, fn]) => [key, await fn()])
+  ));
+
   async function run(selected) {
     if (progress.running) throw new Error("An export is already running.");
     const wants = key => !selected || selected.includes(key);
     controller = new AbortController();
-    Object.assign(progress, { items: [], current: -1, completed: 0, running: true, startedAt: null, canceled: false, error: null, result: null });
+    Object.assign(progress, { items: [], current: -1, completed: 0, completedDurationMs: 0, itemStartedAt: null, running: true, startedAt: null, canceled: false, error: null, result: null });
     const errors = [];
     const safe = async (name, fn) => {
       try { return await fn(); }
@@ -233,10 +317,7 @@
     progress.items = [
       ...(wants("clients.data") ? ["Client data"] : []),
       ...(wants("wireless.templates") ? ["Wireless templates"] : []),
-      ...(wants("devices") ? [
-        ...devices.filter(device => !/AP|BRIDGE/.test(String(device.commonType || device.productType || "").toUpperCase())).map((device, index) => `Device ${index + 1}: ${device.name || device.serialNumber || "Unknown"}`),
-        ...(devices.some(device => /AP|BRIDGE/.test(String(device.commonType || device.productType || "").toUpperCase())) ? ["Wireless devices"] : [])
-      ] : []),
+      ...(wants("devices") ? ["Devices"] : []),
       ...(wants("project.overview") ? ["Project overview"] : []),
       ...(wants("topology") ? ["Topology"] : []),
       ...(wants("clients.statistics") ? ["Client statistics"] : []),
@@ -249,8 +330,13 @@
     progress.startedAt = Date.now();
     const exportItem = async fn => {
       const index = ++progress.current;
+      progress.itemStartedAt = Date.now();
       try { return await fn(); }
-      finally { progress.completed = index + 1; }
+      finally {
+        progress.completedDurationMs += Date.now() - progress.itemStartedAt;
+        progress.itemStartedAt = null;
+        progress.completed = index + 1;
+      }
     };
 
     const clients = wants("clients.data") ? await exportItem(() => safe("clients", async () => {
@@ -275,68 +361,64 @@
       const type = String(device.commonType || device.productType || "").toUpperCase();
       const common = {
         inventory: device,
-        detail: await safe(`${sn}.detail`, () => call(`/maint/device/${sn}`)),
-        ability: await safe(`${sn}.ability`, () => call(`/device-ability/list/${sn}?businessId=DETAIL_PAGE&version=2`)),
-        performance: await safe(`${sn}.performance`, () => call(`/sys/current_performance?sn=${sn}`, { module: "logbiz" })),
-        onlineHistory24h: await safe(`${sn}.history`, () => call(`/device/history/onoff/${sn}?begin=${dayAgo}&end=${now}`)),
-        topologyLinks: await safe(`${sn}.links`, () => call("/topology/link/info", { querys: { group_id: groupId, sn: device.serialNumber } }))
+        ...await collectFields({
+          detail: () => safe(`${sn}.detail`, () => call(`/maint/device/${sn}`)),
+          ability: () => safe(`${sn}.ability`, () => call(`/device-ability/list/${sn}?businessId=DETAIL_PAGE&version=2`)),
+          performance: () => safe(`${sn}.performance`, () => call(`/sys/current_performance?sn=${sn}`, { module: "logbiz" })),
+          onlineHistory24h: () => safe(`${sn}.history`, () => call(`/device/history/onoff/${sn}?begin=${dayAgo}&end=${now}`)),
+          topologyLinks: () => safe(`${sn}.links`, () => call("/topology/link/info", { querys: { group_id: groupId, sn: device.serialNumber } }))
+        })
       };
 
       if (type.includes("GATEWAY")) {
-        common.gateway = {
-          interfaces: await safe(`${sn}.gateway.interfaces`, () => call(`/gateway/intf/info/${sn}`)),
-          wanHealth: await safe(`${sn}.gateway.wanHealth`, () => call("/smartdiagnosis/wan-detect/device/status", { querys: { sn: device.serialNumber } })),
-          portConfig: await safe(`${sn}.gateway.portConfig`, () => call(`/egw/conf/device/${sn}/port/1`)),
-          vlans: await safe(`${sn}.gateway.vlans`, () => call(`/egw/conf/device/${sn}/vlan`)),
-          unusedDhcp: await safe(`${sn}.gateway.unusedDhcp`, () => call(`/gateway/intf/unuseddhcp?sn=${sn}`))
-        };
+        common.gateway = await collectFields({
+          interfaces: () => safe(`${sn}.gateway.interfaces`, () => call(`/gateway/intf/info/${sn}`)),
+          wanHealth: () => safe(`${sn}.gateway.wanHealth`, () => call("/smartdiagnosis/wan-detect/device/status", { querys: { sn: device.serialNumber } })),
+          portConfig: () => safe(`${sn}.gateway.portConfig`, () => call(`/egw/conf/device/${sn}/port/1`)),
+          vlans: () => safe(`${sn}.gateway.vlans`, () => call(`/egw/conf/device/${sn}/vlan`)),
+          unusedDhcp: () => safe(`${sn}.gateway.unusedDhcp`, () => call(`/gateway/intf/unuseddhcp?sn=${sn}`))
+        });
       } else if (type.includes("SWITCH")) {
-        common.switch = {
-          ports: await safe(`${sn}.switch.ports`, () => call(`/smartscene/device/switch/ports?sn=${sn}`)),
-          portStatus: await safe(`${sn}.switch.portStatus`, () => call(`/conf/switch/device/${sn}/ports`, { querys: { page_size: 9999, page_index: 1, include_ag: true } })),
-          vlans: await safe(`${sn}.switch.vlans`, () => call("/smartscene/device/conf/vlan", { querys: { sn: device.serialNumber } })),
-          vlanMode: await safe(`${sn}.switch.vlanMode`, () => call("/conf/esw/vlan_mode", { querys: { sn: device.serialNumber } })),
-          uplink: await safe(`${sn}.switch.uplink`, () => call(`/switch/uplinkport/${sn}`)),
-          neighbors: await safe(`${sn}.switch.neighbors`, () => call(`/switch/neighbor/${sn}`, { querys: { page: 1, per_page: 9999 } }))
-        };
+        common.switch = await collectFields({
+          ports: () => safe(`${sn}.switch.ports`, () => call(`/smartscene/device/switch/ports?sn=${sn}`)),
+          portStatus: () => safe(`${sn}.switch.portStatus`, () => call(`/conf/switch/device/${sn}/ports`, { querys: { page_size: 9999, page_index: 1, include_ag: true } })),
+          vlans: () => safe(`${sn}.switch.vlans`, () => call("/smartscene/device/conf/vlan", { querys: { sn: device.serialNumber } })),
+          vlanMode: () => safe(`${sn}.switch.vlanMode`, () => call("/conf/esw/vlan_mode", { querys: { sn: device.serialNumber } })),
+          uplink: () => safe(`${sn}.switch.uplink`, () => call(`/switch/uplinkport/${sn}`)),
+          neighbors: () => safe(`${sn}.switch.neighbors`, () => call(`/switch/neighbor/${sn}`, { querys: { page: 1, per_page: 9999 } }))
+        });
       } else if (type.includes("AP") || type.includes("BRIDGE")) {
-        common.wirelessDevice = {
-          radioAbility: await safe(`${sn}.radioAbility`, () => call("/conf/radio/product_ability", { querys: { sn: device.serialNumber } })),
-          ports: await safe(`${sn}.wireless.ports`, () => call(`/enet/port/conf?sn=${sn}`)),
-          portStatus: await safe(`${sn}.wireless.portStatus`, () => call(`/enet/port/list?sn=${sn}`)),
-          vlans: await safe(`${sn}.wireless.vlans`, () => call(`/enet/vlan_list?sn=${sn}`)),
-          clientCount: await safe(`${sn}.wireless.clientCount`, () => call(`/sta/device/user/count?sn_list=${sn}`, { module: "logbiz" })),
-          weakSignalClients: await safe(`${sn}.wireless.weakSignalClients`, () => call(`/sta/bad_rssi_user_count?sn=${sn}`, { module: "logbiz" }))
-        };
+        common.wirelessDevice = await collectFields({
+          radioAbility: () => safe(`${sn}.radioAbility`, () => call("/conf/radio/product_ability", { querys: { sn: device.serialNumber } })),
+          ports: () => safe(`${sn}.wireless.ports`, () => call(`/enet/port/conf?sn=${sn}`)),
+          portStatus: () => safe(`${sn}.wireless.portStatus`, () => call(`/enet/port/list?sn=${sn}`)),
+          vlans: () => safe(`${sn}.wireless.vlans`, () => call(`/enet/vlan_list?sn=${sn}`)),
+          clientCount: () => safe(`${sn}.wireless.clientCount`, () => call(`/sta/device/user/count?sn_list=${sn}`, { module: "logbiz" })),
+          weakSignalClients: () => safe(`${sn}.wireless.weakSignalClients`, () => call(`/sta/bad_rssi_user_count?sn=${sn}`, { module: "logbiz" }))
+        });
       }
       return common;
     };
-    if (wants("devices")) {
-      const wirelessDevices = devices.filter(device => /AP|BRIDGE/.test(String(device.commonType || device.productType || "").toUpperCase()));
-      for (const device of devices.filter(device => !wirelessDevices.includes(device))) {
-        deviceSnapshots.push(await exportItem(() => collectDevice(device)));
-      }
-      if (wirelessDevices.length) deviceSnapshots.push(...await exportItem(async () => {
-        const item = progress.current;
-        let completed = 0;
-        return mapLimit(wirelessDevices, 4, async device => {
-          try { return await collectDevice(device); }
-          finally { progress.items[item] = `Wireless devices ${++completed}/${wirelessDevices.length}`; }
-        });
-      }));
-    }
+    if (wants("devices")) deviceSnapshots.push(...await exportItem(async () => {
+      const item = progress.current;
+      let completed = 0;
+      return mapLimit(devices, DEVICE_CONCURRENCY, async device => {
+        try { return await collectDevice(device); }
+        finally { progress.items[item] = `Devices ${++completed}/${devices.length}`; }
+      });
+    }));
 
     const projectOverview = wants("project.overview") ? await exportItem(async () => ({
       summary: await safe("project.summary", () => call(`/maint/statistic/deviceinfo?group_id=${encodedGroup}`)),
       networkModel: await safe("project.networkModel", () => call(`/maint/network/model/detail?group_id=${encodedGroup}`))
     })) : undefined;
-    const topology = wants("topology") ? await exportItem(async () => {
+    const topologyRaw = wants("topology") ? await exportItem(async () => {
       const raw = {
         generation: await safe("topology.generation", () => call(`/topology/generation/record/${encodedGroup}`)),
         tree: await safe("topology.tree", () => call(`/topology/info/${encodedGroup}?with_wired_terminal=true&with_terminal=false`)),
         terminals: await safe("topology.terminals", () => call(`/topology/terminal/info/${encodedGroup}`))
       };
-      return { graph: buildTopologyGraph(deviceSnapshots.length ? deviceSnapshots : devices, raw), ...raw };
+      return raw;
     }) : undefined;
     const clientStatistics = wants("clients.statistics") ? await exportItem(() => safe("clients.statistics", () => call("/network/current/user/statistical", { module: "logbiz", querys: { group_id: groupId } }))) : undefined;
     const wirelessSettings = wants("wireless.settings") ? await exportItem(async () => ({
@@ -354,16 +436,16 @@
     const clearedAlarms = wants("alarms.cleared") ? await exportItem(() => safe("alarms.cleared", () => call(`/warn/warnlog?group_id=${encodedGroup}&page=1&per_page=9999&is_eliminate=true`))) : undefined;
     const operationLog = wants("operationLog") ? await exportItem(() => safe("operationLog", () => call(`/operationlog/list?start=${now - 30 * 86_400_000}&end=${now}&page=1&per_page=9999`))) : undefined;
 
-    const snapshot = redact({
+    const snapshot = redact(normalize({
       format: "ruijie-cloud-project-snapshot",
-      version: 1,
+      version: 2,
       exportedAt: new Date().toISOString(),
       source: { origin: location.origin, projectName: visibleProjectName },
       project,
       summary: projectOverview?.summary,
       networkModel: projectOverview?.networkModel,
-      topology,
-      clients,
+      topology: topologyRaw ? buildTopologyGraph(deviceSnapshots.length ? deviceSnapshots : devices, topologyRaw) : undefined,
+      clients: clients ? mergeClients(clients, topologyRaw?.terminals) : undefined,
       clientStatistics,
       wireless: wirelessSettings || wirelessTemplates ? { ...wirelessSettings, ...wirelessTemplates } : undefined,
       portalAuth,
@@ -371,13 +453,13 @@
       operationLog,
       devices: wants("devices") ? deviceSnapshots : undefined,
       errors
-    });
+    }));
 
     const safeName = visibleProjectName.replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").slice(0, 80) || "project";
     const date = new Date().toISOString().slice(0, 10);
     return {
       filename: `ruijie-${safeName}-${date}.json`,
-      json: JSON.stringify(snapshot, null, 2),
+      json: JSON.stringify(snapshot),
       summary: { devices: wants("devices") ? devices.length : 0, clients: clients?.length || 0, errors: errors.length }
     };
     } finally {
@@ -408,5 +490,5 @@
     return true;
   }
 
-  window.__ruijieCloudExporter = { run, start, cancel, redact, isAllowed, getProgress, buildTopologyGraph };
+  window.__ruijieCloudExporter = { run, start, cancel, redact, isAllowed, getProgress, buildTopologyGraph, mergeClients, normalize };
 })();

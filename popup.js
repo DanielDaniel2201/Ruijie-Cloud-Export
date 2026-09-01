@@ -49,11 +49,13 @@ function renderProgress(progress) {
   latestProgress = progress;
   if (!progress.running) {
     eta.textContent = "";
-  } else if (!progress.startedAt || !progress.completed) {
+  } else if (!progress.completed || !Number.isFinite(progress.completedDurationMs)) {
     eta.textContent = "Estimated remaining: calculating…";
   } else {
-    const remaining = Math.ceil((Date.now() - progress.startedAt) / progress.completed * (progress.items.length - progress.completed) / 1000);
-    eta.textContent = `Estimated remaining: ${formatDuration(Math.max(0, remaining))}`;
+    const average = progress.completedDurationMs / progress.completed;
+    const currentRemaining = progress.itemStartedAt ? Math.max(0, average - (Date.now() - progress.itemStartedAt)) : 0;
+    const queued = Math.max(0, progress.items.length - progress.completed - (progress.itemStartedAt ? 1 : 0));
+    eta.textContent = `Estimated remaining: ${formatDuration(Math.ceil((currentRemaining + average * queued) / 1000))}`;
   }
   if (!progress.items.length) {
     button.textContent = "Preparing export…";
