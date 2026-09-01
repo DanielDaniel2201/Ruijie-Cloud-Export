@@ -1,6 +1,15 @@
 const mcpPollingTabs = new Set();
+const MCP_POLL_ALARM = "ruijie-mcp-poll";
 
-chrome.runtime.onMessage.addListener((message, sender) => {
+chrome.alarms.create(MCP_POLL_ALARM, { periodInMinutes: 0.5 });
+chrome.alarms.onAlarm.addListener(alarm => {
+  if (alarm.name !== MCP_POLL_ALARM) return;
+  void chrome.tabs.query({ url: "https://cloud-as.ruijienetworks.com/macc5/*" }).then(tabs => {
+    if (tabs[0]?.id !== undefined) return pollMcp(tabs[0].id);
+  }).catch(() => {});
+});
+
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "ruijie-export-state" && sender.tab?.id !== undefined) {
     const tabId = sender.tab.id;
     void chrome.action.setBadgeBackgroundColor({ tabId, color: "#246bfd" });
@@ -9,8 +18,9 @@ chrome.runtime.onMessage.addListener((message, sender) => {
     return;
   }
 
-  if (message?.type === "ruijie-mcp-poll" && sender.tab?.id !== undefined && sender.tab.active) {
-    void pollMcp(sender.tab.id);
+  if (message?.type === "ruijie-mcp-poll" && sender.tab?.id !== undefined) {
+    void pollMcp(sender.tab.id).finally(sendResponse);
+    return true;
   }
 });
 

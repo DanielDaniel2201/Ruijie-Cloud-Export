@@ -16,7 +16,7 @@ Get-Content .\.private\ruijie-mcp-token.txt | Set-Clipboard
 ```
 
 4. 打开扩展的 **MCP agent connection**，端口填 `32145`，粘贴 Token，勾选启用并保存。
-5. 保持一个已登录的锐捷项目标签页处于活动状态。
+5. 保持一个已登录的锐捷项目标签页打开即可，无需一直停留在该标签页。
 6. 直接启动 Pi：
 
 ```powershell

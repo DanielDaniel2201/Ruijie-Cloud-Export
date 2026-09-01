@@ -128,7 +128,7 @@ function invokeBrowser(name, args) {
     const timer = setTimeout(() => {
       pending.delete(id);
       queue = queue.filter(task => task.id !== id);
-      reject(new Error("No active paired Ruijie browser tab answered within 45 seconds."));
+      reject(new Error("No paired Ruijie browser tab completed the request within 45 seconds."));
     }, 45_000);
     pending.set(id, { resolve, reject, timer });
     queue.push({ id, name, arguments: args });

@@ -126,13 +126,19 @@ assert.equal(JSON.stringify(snapshot).includes('"code":0'), false);
 assert.ok(requests.every(request => isAllowed(request.api, request.method)));
 
 let backgroundListener;
+let alarmListener;
 const actionCalls = [];
 const bridgePosts = [];
 const scriptCalls = [];
 vm.runInNewContext(fs.readFileSync(new URL("./background.js", import.meta.url), "utf8"), {
   AbortSignal,
   chrome: {
+    alarms: {
+      create: () => {},
+      onAlarm: { addListener: listener => { alarmListener = listener; } }
+    },
     runtime: { onMessage: { addListener: listener => { backgroundListener = listener; } } },
+    tabs: { query: async () => [{ id: 3 }] },
     storage: { local: { get: async () => ({ mcpEnabled: true, mcpPort: 32145, mcpToken: "test-token-123456789" }) } },
     scripting: { executeScript: async options => {
       scriptCalls.push(options);
@@ -156,13 +162,19 @@ assert.deepEqual(JSON.parse(JSON.stringify(actionCalls)), [
   ["badge", { tabId: 3, text: "◌" }],
   ["title", { tabId: 3, title: "Ruijie export in progress" }]
 ]);
-backgroundListener({ type: "ruijie-mcp-poll" }, { tab: { id: 3, active: true } });
+let pollCompleted = false;
+assert.equal(backgroundListener({ type: "ruijie-mcp-poll" }, { tab: { id: 3, active: false } }, () => { pollCompleted = true; }), true);
 await new Promise(resolve => setTimeout(resolve, 10));
+assert.equal(pollCompleted, true);
 assert.equal(scriptCalls.length, 2);
 assert.deepEqual(JSON.parse(JSON.stringify(bridgePosts)), [[
   "http://127.0.0.1:32145/result/abc-123",
   { result: { project: { name: "Demo" } } }
 ]]);
+alarmListener({ name: "ruijie-mcp-poll" });
+await new Promise(resolve => setTimeout(resolve, 10));
+assert.equal(scriptCalls.length, 4);
+assert.equal(bridgePosts.length, 2);
 
 requests.length = 0;
 const selectedResult = await sandbox.window.__ruijieCloudExporter.run(["project.overview"]);

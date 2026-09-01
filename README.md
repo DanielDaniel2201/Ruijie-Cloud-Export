@@ -36,7 +36,7 @@ The extension uses the current Ruijie Cloud session without reading Cookie or lo
 }
 ```
 
-The server binds only to `127.0.0.1`. Keep one Ruijie project tab active. The agent receives nine read-only tools covering project/device state, alarms, topology, clients, operation logs, wireless settings, and Portal authentication; device serial numbers must belong to the current project, and arbitrary API or write calls are unavailable.
+The server binds only to `127.0.0.1`. Keep one Ruijie project tab open; it does not need to stay active. The agent receives nine read-only tools covering project/device state, alarms, topology, clients, operation logs, wireless settings, and Portal authentication; device serial numbers must belong to the current project, and arbitrary API or write calls are unavailable.
 
 ## Export coverage
 
