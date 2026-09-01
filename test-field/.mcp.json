@@ -1,0 +1,35 @@
+{
+  "settings": {
+    "hostConfigDiscovery": "off",
+    "scriptMode": false,
+    "mcpFooterStatus": "compact",
+    "outputGuard": true
+  },
+  "mcpServers": {
+    "ruijie-cloud": {
+      "command": "node",
+      "args": ["mcp-server.mjs"],
+      "cwd": "..",
+      "env": {
+        "RUIJIE_MCP_TOKEN": "!powershell -NoProfile -ExecutionPolicy Bypass -File scripts/read-token.ps1",
+        "RUIJIE_MCP_PORT": "32145"
+      },
+      "lifecycle": "lazy",
+      "requestTimeoutMs": 60000,
+      "directTools": [
+        "get_project_context",
+        "get_device_info",
+        "get_device_network",
+        "get_alarms"
+      ],
+      "includeTools": [
+        "get_project_context",
+        "get_device_info",
+        "get_device_network",
+        "get_alarms"
+      ],
+      "toolPrefix": "none",
+      "exposeResources": false
+    }
+  }
+}

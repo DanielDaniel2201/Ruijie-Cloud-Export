@@ -1,0 +1,4 @@
+.private/
+.pi/npm/
+.pi/mcp-traces/
+node_modules/
