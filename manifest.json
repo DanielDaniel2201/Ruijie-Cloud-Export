@@ -1,10 +1,10 @@
 {
   "manifest_version": 3,
   "name": "Ruijie Cloud Project Export",
-  "version": "0.2.1",
-  "description": "Export the current Ruijie Cloud project as a read-only JSON snapshot.",
-  "permissions": ["activeTab", "scripting"],
-  "host_permissions": ["https://cloud-as.ruijienetworks.com/*"],
+  "version": "0.3.0",
+  "description": "Export or inspect the current Ruijie Cloud project through read-only agent tools.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "host_permissions": ["https://cloud-as.ruijienetworks.com/*", "http://127.0.0.1/*"],
   "background": { "service_worker": "background.js" },
   "content_scripts": [{
     "matches": ["https://cloud-as.ruijienetworks.com/macc5/*"],

@@ -27,6 +27,12 @@
       .check { flex: none; color: #139653; font-size: 17px; font-weight: 700; }
       @keyframes spin { to { transform: rotate(360deg); } }
       #status { margin-top: 8px; white-space: pre-wrap; }
+      #mcp { margin-top: 14px; border-top: 1px solid #d9deea; padding-top: 10px; }
+      #mcp summary { cursor: pointer; font-weight: 650; }
+      #mcp label { display: block; margin-top: 8px; color: #596579; }
+      #mcp input[type="number"], #mcp input[type="password"] { box-sizing: border-box; width: 100%; margin-top: 3px; padding: 7px; border: 1px solid #d9deea; border-radius: 6px; }
+      #mcp-save { margin-top: 9px; padding: 7px; color: #246bfd; background: #eaf0ff; }
+      #mcp-status { margin-top: 6px; color: #596579; font-size: 12px; }
       .error { color: #b42318; }
       .ok { color: #087443; }
       [hidden] { display: none !important; }
@@ -68,6 +74,14 @@
     <div id="eta" role="status" aria-live="polite"></div>
     <div id="progress" role="status" aria-live="polite" hidden></div>
     <div id="status" role="status" aria-live="polite"></div>
+    <details id="mcp">
+      <summary>MCP agent connection</summary>
+      <label><input id="mcp-enabled" type="checkbox"> Enable for the active Ruijie project</label>
+      <label>Local port<input id="mcp-port" type="number" min="1" max="65535" value="32145"></label>
+      <label>Pairing token<input id="mcp-token" type="password" autocomplete="off"></label>
+      <button id="mcp-save" type="button">Save MCP connection</button>
+      <div id="mcp-status" role="status" aria-live="polite"></div>
+    </details>
     <script src="popup.js"></script>
   </body>
 </html>

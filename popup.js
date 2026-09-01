@@ -7,6 +7,11 @@ const preview = document.querySelector("#preview");
 const selectAll = document.querySelector("#select-all");
 const allCount = document.querySelector("#all-count");
 const choices = [...preview.querySelectorAll("input[value]")];
+const mcpEnabled = document.querySelector("#mcp-enabled");
+const mcpPort = document.querySelector("#mcp-port");
+const mcpToken = document.querySelector("#mcp-token");
+const mcpSave = document.querySelector("#mcp-save");
+const mcpStatus = document.querySelector("#mcp-status");
 preview.querySelectorAll("summary").forEach(summary => {
   const count = document.createElement("span");
   count.className = "count";
@@ -125,6 +130,21 @@ selectAll.addEventListener("change", () => {
 choices.forEach(choice => choice.addEventListener("change", updateSelection));
 updateSelection();
 
+mcpSave.addEventListener("click", async () => {
+  const port = Number(mcpPort.value);
+  const token = mcpToken.value.trim();
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    mcpStatus.textContent = "Port must be between 1 and 65535.";
+    return;
+  }
+  if (mcpEnabled.checked && token.length < 16) {
+    mcpStatus.textContent = "Use a pairing token of at least 16 characters.";
+    return;
+  }
+  await chrome.storage.local.set({ mcpEnabled: mcpEnabled.checked, mcpPort: port, mcpToken: token });
+  mcpStatus.textContent = mcpEnabled.checked ? "MCP connection enabled." : "MCP connection disabled.";
+});
+
 async function poll() {
   if (polling) return;
   polling = true;
@@ -207,6 +227,10 @@ cancelButton.addEventListener("click", async () => {
 });
 
 (async () => {
+  const config = await chrome.storage.local.get(["mcpEnabled", "mcpPort", "mcpToken"]);
+  mcpEnabled.checked = Boolean(config.mcpEnabled);
+  mcpPort.value = config.mcpPort || 32145;
+  mcpToken.value = config.mcpToken || "";
   try {
     await getTab();
     const progress = await readProgress();

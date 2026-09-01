@@ -23,6 +23,9 @@ const replies = envelope => {
     ] };
   }
   if (envelope.api === "/network/current/user/global/page") return { code: 0, list: [{ mac: "00:11", onlineTime: 1_700_000_000_000, activeSec: 60, upRate: "128", userName: "" }] };
+  if (envelope.api === "/maint/device/GW1") return { code: 0, data: { serialNumber: "GW1", password: "gateway-secret" } };
+  if (envelope.api === "/gateway/intf/info/GW1") return { code: 0, data: { name: "WAN1", token: "gateway-token" } };
+  if (envelope.api.startsWith("/warn/warnlog")) return { code: 0, list: [{ sn: "GW1", message: "WAN down", accessKey: "alarm-key" }] };
   if (envelope.api === "/topology/generation/record/7") return { code: 0, data: { currentHasTopo: "true" } };
   if (envelope.api.startsWith("/topology/info/7")) return { code: 0, data: { sn: "GW1", children: [{ sn: "SW1" }] } };
   if (envelope.api === "/topology/terminal/info/7") return { code: 0, list: [{ sn: "AP1", details: [{ mac: "00:11", ip: "192.0.2.1", linkedPort: "Gi1" }] }] };
@@ -64,6 +67,7 @@ vm.runInNewContext(fs.readFileSync(new URL("./collector.js", import.meta.url), "
 const { redact, isAllowed, getProgress } = sandbox.window.__ruijieCloudExporter;
 assert.equal(redact({ password: "wifi-secret" }).password, "[REDACTED]");
 assert.equal(redact({ access_token: "abc" }).access_token, "[REDACTED]");
+assert.equal(redact({ authorization: "Bearer abc" }).authorization, "[REDACTED]");
 assert.equal(redact({ serialNumber: "SN1" }).serialNumber, "SN1");
 assert.equal(isAllowed("/maint/device/SN1", "GET"), true);
 assert.equal(isAllowed("/maint/device/SN1", "POST"), false);
@@ -122,14 +126,27 @@ assert.ok(requests.every(request => isAllowed(request.api, request.method)));
 
 let backgroundListener;
 const actionCalls = [];
+const bridgePosts = [];
+const scriptCalls = [];
 vm.runInNewContext(fs.readFileSync(new URL("./background.js", import.meta.url), "utf8"), {
+  AbortSignal,
   chrome: {
     runtime: { onMessage: { addListener: listener => { backgroundListener = listener; } } },
+    storage: { local: { get: async () => ({ mcpEnabled: true, mcpPort: 32145, mcpToken: "test-token-123456789" }) } },
+    scripting: { executeScript: async options => {
+      scriptCalls.push(options);
+      return [{ result: options.args ? { project: { name: "Demo" } } : true }];
+    } },
     action: {
       setBadgeBackgroundColor: options => actionCalls.push(["color", options]),
       setBadgeText: options => actionCalls.push(["badge", options]),
       setTitle: options => actionCalls.push(["title", options])
     }
+  },
+  fetch: async (url, options = {}) => {
+    if (url.endsWith("/next")) return { status: 200, ok: true, json: async () => ({ id: "abc-123", name: "get_project_context", arguments: {} }) };
+    bridgePosts.push([url, JSON.parse(options.body)]);
+    return { ok: true };
   }
 });
 backgroundListener({ type: "ruijie-export-state", running: true }, { tab: { id: 3 } });
@@ -138,6 +155,13 @@ assert.deepEqual(JSON.parse(JSON.stringify(actionCalls)), [
   ["badge", { tabId: 3, text: "◌" }],
   ["title", { tabId: 3, title: "Ruijie export in progress" }]
 ]);
+backgroundListener({ type: "ruijie-mcp-poll" }, { tab: { id: 3, active: true } });
+await new Promise(resolve => setTimeout(resolve, 10));
+assert.equal(scriptCalls.length, 2);
+assert.deepEqual(JSON.parse(JSON.stringify(bridgePosts)), [[
+  "http://127.0.0.1:32145/result/abc-123",
+  { result: { project: { name: "Demo" } } }
+]]);
 
 requests.length = 0;
 const selectedResult = await sandbox.window.__ruijieCloudExporter.run(["project.overview"]);
@@ -152,6 +176,21 @@ assert.deepEqual(requests.map(request => request.api), [
   "/maint/statistic/deviceinfo?group_id=7",
   "/maint/network/model/detail?group_id=7"
 ]);
+
+const { invokeTool } = sandbox.window.__ruijieCloudExporter;
+const projectContext = await invokeTool("get_project_context");
+assert.equal(projectContext.project.name, "Demo");
+assert.equal(projectContext.devices.find(device => device.sn === "GW1").type, "gateway");
+assert.deepEqual(JSON.parse(JSON.stringify(projectContext.devices.find(device => device.sn === "GW1").availableNetworkSections)), ["interfaces", "wan", "ports", "vlans", "dhcp"]);
+const deviceInfo = await invokeTool("get_device_info", { deviceSn: "GW1", sections: ["detail"] });
+assert.equal(deviceInfo.detail.password, "[REDACTED]");
+const deviceNetwork = await invokeTool("get_device_network", { deviceSn: "GW1", sections: ["interfaces"] });
+assert.equal(deviceNetwork.interfaces.token, "[REDACTED]");
+const alarms = await invokeTool("get_alarms", { deviceSn: "GW1", limit: 10 });
+assert.equal(alarms.alarms[0].accessKey, "[REDACTED]");
+await assert.rejects(invokeTool("get_device_info", { deviceSn: "OTHER", sections: ["detail"] }), /does not belong/);
+await assert.rejects(invokeTool("get_device_network", { deviceSn: "GW1", sections: ["radio"] }), /Unsupported section/);
+await assert.rejects(invokeTool("call_api", { api: "/maint/device/GW1" }), /Unknown tool/);
 
 sandbox.fetch = (_url, options) => new Promise((_resolve, reject) => {
   options.signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
