@@ -48,7 +48,7 @@ pi
 客户反馈互联网间歇性断线。请按需检查网关 WAN、接口状态和当前告警，给出证据、可能原因和仍需确认的信息。
 ```
 
-MCP 首次连接后提供四个只读工具：`get_project_context`、`get_device_info`、`get_device_network`、`get_alarms`。
+MCP 首次连接后提供九个只读工具：`get_project_context`、`get_device_info`、`get_device_network`、`get_alarms`、`get_topology`、`get_clients`、`get_operation_logs`、`get_wireless_settings`、`get_portal_auth`。
 
 ## 隔离范围
 

@@ -309,6 +309,8 @@
     unknown: []
   };
   const INFO_SECTIONS = ["detail", "ability", "performance", "history", "topology"];
+  const WIRELESS_SECTIONS = ["radio", "wifi", "loadBalancing", "aiRoaming"];
+  const PORTAL_SECTIONS = ["policies", "ability", "global", "ssids"];
 
   function summarizeDevice(device) {
     const kind = kindOf(device);
@@ -334,6 +336,12 @@
     const invalid = sections.filter(section => !available.includes(section));
     if (invalid.length) throw new Error(`Unsupported section(s): ${invalid.join(", ")}. Available: ${available.join(", ") || "none"}.`);
     return sections;
+  }
+
+  function boundedInteger(value, fallback, name, maximum) {
+    const result = value ?? fallback;
+    if (!Number.isInteger(result) || result < 1 || result > maximum) throw new Error(`${name} must be an integer from 1 to ${maximum}.`);
+    return result;
   }
 
   async function collectToolSections(definitions, sections) {
@@ -425,12 +433,104 @@
   async function getAlarms(context, args) {
     const state = args.state ?? "active";
     if (state !== "active" && state !== "cleared") throw new Error("state must be active or cleared.");
-    const limit = args.limit ?? 50;
-    if (!Number.isInteger(limit) || limit < 1 || limit > 200) throw new Error("limit must be an integer from 1 to 200.");
+    const limit = boundedInteger(args.limit, 50, "limit", 200);
     if (args.deviceSn !== undefined) findDevice(context, args.deviceSn);
     const encodedGroup = encodeURIComponent(context.groupId);
     const response = await call(`/warn/warnlog?group_id=${encodedGroup}&page=1&per_page=${limit}&is_eliminate=${state === "cleared"}`);
     return { state, ...(args.deviceSn ? { requestedDeviceSn: args.deviceSn } : {}), alarms: response };
+  }
+
+  async function getTopology(context, args) {
+    if (args.includeClients !== undefined && typeof args.includeClients !== "boolean") throw new Error("includeClients must be a boolean.");
+    const encodedGroup = encodeURIComponent(context.groupId);
+    const sections = ["generation", "tree", ...(args.includeClients ? ["terminals"] : [])];
+    const raw = await collectToolSections({
+      generation: () => call(`/topology/generation/record/${encodedGroup}`),
+      tree: () => call(`/topology/info/${encodedGroup}?with_wired_terminal=true&with_terminal=false`),
+      terminals: () => call(`/topology/terminal/info/${encodedGroup}`)
+    }, sections);
+    const { errors, ...topology } = raw;
+    return { ...buildTopologyGraph(context.devices, topology), ...(errors ? { errors } : {}) };
+  }
+
+  const clientDeviceSn = client => client.deviceSn || client.devSn || client.apSn || client.connectDeviceSn || client.linkedDevice || client.connectedDeviceId;
+  const clientConnectionType = client => {
+    if (client.isWireless === true || client.wireless === true) return "wireless";
+    if (client.isWireless === false || client.wireless === false) return "wired";
+    const value = String(client.connectionType || client.connectType || client.userType || client.clientType || client.accessType || "").toLowerCase();
+    if (/wireless|wifi|wlan|(^|[^a-z])ap([^a-z]|$)/.test(value)) return "wireless";
+    if (/wired|ethernet|lan/.test(value)) return "wired";
+    return "unknown";
+  };
+  const isProblemClient = client => {
+    const rssi = Number(client.rssi ?? client.rssiDbm);
+    const loss = Number(client.pktLoseRate ?? client.packetLossPercent);
+    const status = String(client.healthStatus || client.status || client.onlineStatus || "").toLowerCase();
+    // ponytail: fixed RSSI threshold, make it configurable if field deployments need calibration.
+    return client.badRssi === true || (Number.isFinite(rssi) && rssi <= -70) || (Number.isFinite(loss) && loss > 0) || /bad|poor|offline|abnormal|error/.test(status);
+  };
+
+  async function getClients(context, args) {
+    const type = args.type ?? "all";
+    if (!["all", "wired", "wireless"].includes(type)) throw new Error("type must be all, wired, or wireless.");
+    if (args.onlyProblems !== undefined && typeof args.onlyProblems !== "boolean") throw new Error("onlyProblems must be a boolean.");
+    if (args.deviceSn !== undefined) findDevice(context, args.deviceSn);
+    const limit = boundedInteger(args.limit, 50, "limit", 200);
+    const pageSize = args.deviceSn || type !== "all" || args.onlyProblems ? 200 : limit;
+    const response = await call("/network/current/user/global/page", {
+      module: "logbiz",
+      querys: { group_id: context.groupId, page_index: 1, page_size: pageSize }
+    });
+    let clients = response.list || response.dataList || response.data?.list || [];
+    const scanned = clients.length;
+    if (args.deviceSn) clients = clients.filter(client => clientDeviceSn(client) === args.deviceSn);
+    if (type !== "all") clients = clients.filter(client => clientConnectionType(client) === type);
+    if (args.onlyProblems) clients = clients.filter(isProblemClient);
+    return {
+      filters: { type, onlyProblems: Boolean(args.onlyProblems), ...(args.deviceSn ? { deviceSn: args.deviceSn } : {}) },
+      scanned,
+      mayHaveMore: scanned === pageSize,
+      returned: Math.min(clients.length, limit),
+      clients: clients.slice(0, limit)
+    };
+  }
+
+  async function getOperationLogs(context, args) {
+    const days = boundedInteger(args.days, 7, "days", 30);
+    const limit = boundedInteger(args.limit, 50, "limit", 200);
+    if (args.deviceSn !== undefined) findDevice(context, args.deviceSn);
+    const now = Date.now();
+    const response = await call(`/operationlog/list?start=${now - days * 86_400_000}&end=${now}&page=1&per_page=${limit}`);
+    return { days, ...(args.deviceSn ? { requestedDeviceSn: args.deviceSn } : {}), logs: response };
+  }
+
+  async function getWirelessSettings(context, args) {
+    const sections = requestedSections(args.sections, WIRELESS_SECTIONS);
+    const encodedGroup = encodeURIComponent(context.groupId);
+    return collectToolSections({
+      radio: () => call("/conf/radio/global/config", { querys: { group_id: context.groupId } }),
+      wifi: async () => {
+        const templates = await call(`/conf/group/${encodedGroup}/templates`);
+        const configurations = await mapLimit(templates.tempList || [], 3, template => call("/conf/wifi_grp/wifi", {
+          querys: { group_id: context.groupId, conf_template_id: template.id }
+        }));
+        return { templates, configurations };
+      },
+      loadBalancing: () => call(`/nbc/ap_lb/conf?group_id=${encodedGroup}`),
+      aiRoaming: () => call(`/enet/airoam/group/${encodedGroup}/conf`)
+    }, sections);
+  }
+
+  async function getPortalAuth(context, args) {
+    const sections = requestedSections(args.sections, PORTAL_SECTIONS);
+    const limit = boundedInteger(args.limit, 100, "limit", 200);
+    const encodedGroup = encodeURIComponent(context.groupId);
+    return collectToolSections({
+      policies: () => call(`/intl/auth/v2/policy/${encodedGroup}?page_index=1&page_size=${limit}`, { querys: { show_temp_nbr: 1 } }),
+      ability: () => call(`/intl/auth/v2/ability/${encodedGroup}`, { querys: { show_temp_nbr: 1 } }),
+      global: () => call(`/intl/auth/v2/global/${encodedGroup}`),
+      ssids: () => call(`/intl/auth/v2/group/${encodedGroup}/ssids`)
+    }, sections);
   }
 
   async function invokeTool(toolName, args = {}) {
@@ -440,7 +540,12 @@
       get_project_context: getProjectContext,
       get_device_info: getDeviceInfo,
       get_device_network: getDeviceNetwork,
-      get_alarms: getAlarms
+      get_alarms: getAlarms,
+      get_topology: getTopology,
+      get_clients: getClients,
+      get_operation_logs: getOperationLogs,
+      get_wireless_settings: getWirelessSettings,
+      get_portal_auth: getPortalAuth
     };
     const handler = handlers[toolName];
     if (!handler) throw new Error(`Unknown tool: ${toolName}`);

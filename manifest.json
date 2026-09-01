@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Ruijie Cloud Project Export",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Export or inspect the current Ruijie Cloud project through read-only agent tools.",
   "permissions": ["activeTab", "scripting", "storage"],
   "host_permissions": ["https://cloud-as.ruijienetworks.com/*", "http://127.0.0.1/*"],

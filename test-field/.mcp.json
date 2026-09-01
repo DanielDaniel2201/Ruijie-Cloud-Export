@@ -20,13 +20,23 @@
         "get_project_context",
         "get_device_info",
         "get_device_network",
-        "get_alarms"
+        "get_alarms",
+        "get_topology",
+        "get_clients",
+        "get_operation_logs",
+        "get_wireless_settings",
+        "get_portal_auth"
       ],
       "includeTools": [
         "get_project_context",
         "get_device_info",
         "get_device_network",
-        "get_alarms"
+        "get_alarms",
+        "get_topology",
+        "get_clients",
+        "get_operation_logs",
+        "get_wireless_settings",
+        "get_portal_auth"
       ],
       "toolPrefix": "none",
       "exposeResources": false

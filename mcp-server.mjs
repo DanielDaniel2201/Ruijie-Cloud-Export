@@ -11,6 +11,8 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("RUIJIE
 
 const infoSections = ["detail", "ability", "performance", "history", "topology"];
 const networkSections = ["interfaces", "wan", "ports", "vlans", "dhcp", "vlanMode", "uplink", "neighbors", "radio", "clients"];
+const wirelessSections = ["radio", "wifi", "loadBalancing", "aiRoaming"];
+const portalSections = ["policies", "ability", "global", "ssids"];
 const tools = [
   {
     name: "get_project_context",
@@ -52,6 +54,65 @@ const tools = [
         state: { type: "string", enum: ["active", "cleared"], default: "active" },
         deviceSn: { type: "string", minLength: 1, maxLength: 128, description: "Optional current-project device scope." },
         limit: { type: "integer", minimum: 1, maximum: 200, default: 50 }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "get_topology",
+    description: "Read the normalized current-project device topology. Optionally include client nodes and links.",
+    inputSchema: {
+      type: "object",
+      properties: { includeClients: { type: "boolean", default: false } },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "get_clients",
+    description: "Read a bounded list of current clients, optionally scoped to a current-project device, wired/wireless type, or likely problem indicators.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        deviceSn: { type: "string", minLength: 1, maxLength: 128, description: "Optional serial number returned by get_project_context." },
+        type: { type: "string", enum: ["all", "wired", "wireless"], default: "all" },
+        onlyProblems: { type: "boolean", default: false },
+        limit: { type: "integer", minimum: 1, maximum: 200, default: 50 }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "get_operation_logs",
+    description: "Read a bounded page of recent current-project operation logs to correlate faults with configuration changes. deviceSn is validated as diagnostic scope; API responses may remain project-wide.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        deviceSn: { type: "string", minLength: 1, maxLength: 128, description: "Optional current-project device scope." },
+        days: { type: "integer", minimum: 1, maximum: 30, default: 7 },
+        limit: { type: "integer", minimum: 1, maximum: 200, default: 50 }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "get_wireless_settings",
+    description: "Read selected project-wide radio, Wi-Fi template/SSID, load-balancing, and AI roaming settings.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sections: { type: "array", minItems: 1, uniqueItems: true, items: { type: "string", enum: wirelessSections } }
+      },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "get_portal_auth",
+    description: "Read selected current-project Portal authentication policies, abilities, global settings, and associated SSIDs.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        sections: { type: "array", minItems: 1, uniqueItems: true, items: { type: "string", enum: portalSections } },
+        limit: { type: "integer", minimum: 1, maximum: 200, default: 100 }
       },
       additionalProperties: false
     }
