@@ -16,16 +16,16 @@ const portalSections = ["policies", "ability", "global", "ssids"];
 const tools = [
   {
     name: "get_project_context",
-    description: "Discover the currently open Ruijie Cloud project, its summary, network model, devices, and the sections available for each device. Call this first before using a device tool.",
+    description: "Read the session's Ruijie Cloud project, summary, network model, devices, and available sections. Call once at the start of a session and reuse the result.",
     inputSchema: { type: "object", properties: {}, additionalProperties: false }
   },
   {
     name: "get_device_info",
-    description: "Read selected identity, capability, live performance, 24-hour online history, or topology-link information for one device in the current project.",
+    description: "Read selected identity, capability, live performance, 24-hour online history, or topology-link information for one device in the session project.",
     inputSchema: {
       type: "object",
       properties: {
-        deviceSn: { type: "string", minLength: 1, maxLength: 128, description: "Serial number returned by get_project_context." },
+        deviceSn: { type: "string", minLength: 1, maxLength: 128, description: "Serial number from this session's project context." },
         sections: { type: "array", minItems: 1, uniqueItems: true, items: { type: "string", enum: infoSections } }
       },
       required: ["deviceSn"],
@@ -34,11 +34,11 @@ const tools = [
   },
   {
     name: "get_device_network",
-    description: "Read selected network information for one current-project device. Supported sections depend on whether it is a gateway, switch, or wireless device; use get_project_context to discover them.",
+    description: "Read selected network information for one session-project device. Supported sections depend on whether it is a gateway, switch, or wireless device and are listed in the session's project context.",
     inputSchema: {
       type: "object",
       properties: {
-        deviceSn: { type: "string", minLength: 1, maxLength: 128, description: "Serial number returned by get_project_context." },
+        deviceSn: { type: "string", minLength: 1, maxLength: 128, description: "Serial number from this session's project context." },
         sections: { type: "array", minItems: 1, uniqueItems: true, items: { type: "string", enum: networkSections } }
       },
       required: ["deviceSn"],
@@ -47,12 +47,12 @@ const tools = [
   },
   {
     name: "get_alarms",
-    description: "Read a bounded page of active or cleared alarms for the current project. deviceSn is validated against the project and included as diagnostic scope; API responses may still contain project-wide alarms.",
+    description: "Read a bounded page of active or cleared alarms for the session project. deviceSn is validated against that project and included as diagnostic scope; API responses may still contain project-wide alarms.",
     inputSchema: {
       type: "object",
       properties: {
         state: { type: "string", enum: ["active", "cleared"], default: "active" },
-        deviceSn: { type: "string", minLength: 1, maxLength: 128, description: "Optional current-project device scope." },
+        deviceSn: { type: "string", minLength: 1, maxLength: 128, description: "Optional session-project device scope." },
         limit: { type: "integer", minimum: 1, maximum: 200, default: 50 }
       },
       additionalProperties: false
@@ -60,7 +60,7 @@ const tools = [
   },
   {
     name: "get_topology",
-    description: "Read the normalized current-project device topology. Optionally include client nodes and links.",
+    description: "Read the normalized session-project device topology. Optionally include client nodes and links.",
     inputSchema: {
       type: "object",
       properties: { includeClients: { type: "boolean", default: false } },
@@ -69,11 +69,11 @@ const tools = [
   },
   {
     name: "get_clients",
-    description: "Read a bounded list of current clients, optionally scoped to a current-project device, wired/wireless type, or likely problem indicators.",
+    description: "Read a bounded list of current clients, optionally scoped to a session-project device, wired/wireless type, or likely problem indicators.",
     inputSchema: {
       type: "object",
       properties: {
-        deviceSn: { type: "string", minLength: 1, maxLength: 128, description: "Optional serial number returned by get_project_context." },
+        deviceSn: { type: "string", minLength: 1, maxLength: 128, description: "Optional serial number from this session's project context." },
         type: { type: "string", enum: ["all", "wired", "wireless"], default: "all" },
         onlyProblems: { type: "boolean", default: false },
         limit: { type: "integer", minimum: 1, maximum: 200, default: 50 }
@@ -83,11 +83,11 @@ const tools = [
   },
   {
     name: "get_operation_logs",
-    description: "Read a bounded page of recent current-project operation logs to correlate faults with configuration changes. deviceSn is validated as diagnostic scope; API responses may remain project-wide.",
+    description: "Read a bounded page of recent session-project operation logs to correlate faults with configuration changes. deviceSn is validated as diagnostic scope; API responses may remain project-wide.",
     inputSchema: {
       type: "object",
       properties: {
-        deviceSn: { type: "string", minLength: 1, maxLength: 128, description: "Optional current-project device scope." },
+        deviceSn: { type: "string", minLength: 1, maxLength: 128, description: "Optional session-project device scope." },
         days: { type: "integer", minimum: 1, maximum: 30, default: 7 },
         limit: { type: "integer", minimum: 1, maximum: 200, default: 50 }
       },
@@ -96,7 +96,7 @@ const tools = [
   },
   {
     name: "get_wireless_settings",
-    description: "Read selected project-wide radio, Wi-Fi template/SSID, load-balancing, and AI roaming settings.",
+    description: "Read selected session-project radio, Wi-Fi template/SSID, load-balancing, and AI roaming settings.",
     inputSchema: {
       type: "object",
       properties: {
@@ -107,7 +107,7 @@ const tools = [
   },
   {
     name: "get_portal_auth",
-    description: "Read selected current-project Portal authentication policies, abilities, global settings, and associated SSIDs.",
+    description: "Read selected session-project Portal authentication policies, abilities, global settings, and associated SSIDs.",
     inputSchema: {
       type: "object",
       properties: {
