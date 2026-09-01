@@ -3,6 +3,7 @@ import fs from "node:fs";
 import vm from "node:vm";
 
 const requests = [];
+const exportStates = [];
 let activeApRequests = 0;
 let maxActiveApRequests = 0;
 let activeRequests = 0;
@@ -56,7 +57,7 @@ const sandbox = {
   location: { origin: "https://cloud-as.ruijienetworks.com" },
   setTimeout,
   clearTimeout,
-  window: {}
+  window: { postMessage: message => exportStates.push(message) }
 };
 vm.runInNewContext(fs.readFileSync(new URL("./collector.js", import.meta.url), "utf8"), sandbox);
 
@@ -73,9 +74,13 @@ assert.equal(isAllowed("/intl/auth/v2/policy/7", "POST"), false);
 
 const result = await sandbox.window.__ruijieCloudExporter.run();
 const snapshot = JSON.parse(result.json);
+assert.deepEqual(JSON.parse(JSON.stringify(exportStates)), [
+  { type: "ruijie-export-state", running: true },
+  { type: "ruijie-export-state", running: false }
+]);
 assert.equal(result.summary.devices, 6);
 assert.equal(result.summary.clients, 1);
-assert.equal(maxActiveApRequests, 4);
+assert.ok(maxActiveApRequests > 1 && maxActiveApRequests <= 4);
 assert.ok(maxActiveRequests > 4 && maxActiveRequests <= 8);
 const finishedProgress = JSON.parse(JSON.stringify(getProgress()));
 assert.equal(typeof finishedProgress.startedAt, "number");
@@ -114,6 +119,25 @@ assert.equal(snapshot.topology.unlinkedClientCount, 0);
 assert.equal(result.json.includes("\n"), false);
 assert.equal(JSON.stringify(snapshot).includes('"code":0'), false);
 assert.ok(requests.every(request => isAllowed(request.api, request.method)));
+
+let backgroundListener;
+const actionCalls = [];
+vm.runInNewContext(fs.readFileSync(new URL("./background.js", import.meta.url), "utf8"), {
+  chrome: {
+    runtime: { onMessage: { addListener: listener => { backgroundListener = listener; } } },
+    action: {
+      setBadgeBackgroundColor: options => actionCalls.push(["color", options]),
+      setBadgeText: options => actionCalls.push(["badge", options]),
+      setTitle: options => actionCalls.push(["title", options])
+    }
+  }
+});
+backgroundListener({ type: "ruijie-export-state", running: true }, { tab: { id: 3 } });
+assert.deepEqual(JSON.parse(JSON.stringify(actionCalls)), [
+  ["color", { tabId: 3, color: "#246bfd" }],
+  ["badge", { tabId: 3, text: "◌" }],
+  ["title", { tabId: 3, title: "Ruijie export in progress" }]
+]);
 
 requests.length = 0;
 const selectedResult = await sandbox.window.__ruijieCloudExporter.run(["project.overview"]);

@@ -53,6 +53,7 @@
   let activeRequests = 0;
   let controller;
   const getProgress = () => ({ ...progress, items: [...progress.items] });
+  const notifyExportState = running => window.postMessage?.({ type: "ruijie-export-state", running }, location.origin);
 
   const pathOf = api => new URL(api, location.origin).pathname;
   const isAllowed = (api, method = "GET") => ALLOWED.some(([m, pattern]) => m === method && pattern.test(pathOf(api)));
@@ -294,6 +295,7 @@
     };
 
     try {
+    notifyExportState(true);
 
     const visibleProjectName = document.querySelector(".groupbar-name")?.textContent?.trim();
     if (!visibleProjectName) throw new Error("Open a project in Ruijie Cloud before exporting.");
@@ -465,6 +467,7 @@
     } finally {
       progress.running = false;
       controller = undefined;
+      notifyExportState(false);
     }
   }
 

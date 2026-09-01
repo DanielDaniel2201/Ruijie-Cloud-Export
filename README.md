@@ -2,7 +2,7 @@
 
 [中文说明](README-ZH.md)
 
-Read-only Chrome extension that exports the currently open Ruijie Cloud project to one local JSON file. It does not upload data or call an AI service.
+Read-only Chrome extension that exports the currently open Ruijie Cloud project to one local JSON file. It does not upload data or call an AI service. The action icon remains marked while an export continues after the popup closes.
 
 ## Load it
 
