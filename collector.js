@@ -93,6 +93,95 @@
     return value;
   }
 
+  function buildTopologyGraph(devices, topology) {
+    const nodes = new Map();
+    const links = new Map();
+    const value = (...values) => values.find(item => item !== undefined && item !== null && item !== "");
+    const addNode = node => {
+      if (!node?.id) return;
+      nodes.set(node.id, { ...nodes.get(node.id), ...Object.fromEntries(Object.entries(node).filter(([, item]) => item !== undefined)) });
+    };
+    const addDevice = raw => {
+      const device = raw?.inventory || raw;
+      const id = value(device?.serialNumber, device?.sn, device?.deviceSn);
+      if (!id) return;
+      addNode({
+        id,
+        kind: "device",
+        name: value(device.name, device.aliasName),
+        type: String(value(device.commonType, device.productType, "unknown")).toLowerCase(),
+        model: value(device.productClass, device.productType),
+        status: device.onlineStatus,
+        ip: value(device.localIp, device.cpeIp),
+        mac: device.mac
+      });
+      return id;
+    };
+    const addLink = link => {
+      if (!link?.source || !link?.target || link.source === link.target) return;
+      const key = `${link.type}:${link.source}:${link.target}:${link.sourcePort || ""}:${link.targetPort || ""}`;
+      links.set(key, link);
+    };
+
+    devices.forEach(addDevice);
+
+    const walkTree = (item, parent) => {
+      if (Array.isArray(item)) return item.forEach(child => walkTree(child, parent));
+      if (!item || typeof item !== "object") return;
+      const id = addDevice(item);
+      if (parent && id) addLink({ source: parent, target: id, type: "infrastructure" });
+      const children = value(item.children, item.childList, item.nodes);
+      if (children) walkTree(children, id || parent);
+    };
+    walkTree(value(topology?.tree?.data, topology?.tree?.list), undefined);
+
+    devices.forEach(raw => {
+      const fallbackSource = addDevice(raw);
+      for (const link of raw?.topologyLinks?.list || []) {
+        const source = value(link.sourceSn, link.srcSn, link.localSn, link.fromSn, fallbackSource);
+        const target = value(link.targetSn, link.dstSn, link.remoteSn, link.peerSn, link.linkedSn);
+        if (!source || !target) continue;
+        addNode({ id: source, kind: "device" });
+        addNode({ id: target, kind: "device" });
+        addLink({
+          source,
+          target,
+          type: "infrastructure",
+          sourcePort: value(link.sourcePort, link.srcPort, link.localPort),
+          targetPort: value(link.targetPort, link.dstPort, link.remotePort, link.peerPort),
+          status: link.status,
+          speed: link.speed
+        });
+      }
+    });
+
+    let unlinkedClients = 0;
+    for (const group of topology?.terminals?.list || []) {
+      for (const terminal of group.details || []) {
+        const parent = value(terminal.linkedDevice, group.sn);
+        const mac = terminal.mac?.toLowerCase();
+        if (!mac || !parent || parent === "unknown") {
+          unlinkedClients++;
+          continue;
+        }
+        const id = `client:${mac}`;
+        addNode({ id, kind: "client", name: value(terminal.userName, terminal.ip, mac), ip: terminal.ip, mac });
+        addLink({ source: parent, target: id, type: "client", sourcePort: terminal.linkedPort });
+      }
+    }
+
+    const generation = topology?.generation?.data;
+    const infrastructureAvailable = generation?.currentHasTopo === true || generation?.currentHasTopo === "true";
+    const reason = value(generation?.topoUnsupportedModel, generation?.noTopoReason, generation?.topoIncompleteReason);
+    return {
+      infrastructureAvailable,
+      ...(reason ? { reason } : {}),
+      nodes: [...nodes.values()],
+      links: [...links.values()],
+      unlinkedClients
+    };
+  }
+
   async function mapLimit(items, limit, fn) {
     const results = new Array(items.length);
     let next = 0;
@@ -241,11 +330,14 @@
       summary: await safe("project.summary", () => call(`/maint/statistic/deviceinfo?group_id=${encodedGroup}`)),
       networkModel: await safe("project.networkModel", () => call(`/maint/network/model/detail?group_id=${encodedGroup}`))
     })) : undefined;
-    const topology = wants("topology") ? await exportItem(async () => ({
-      generation: await safe("topology.generation", () => call(`/topology/generation/record/${encodedGroup}`)),
-      tree: await safe("topology.tree", () => call(`/topology/info/${encodedGroup}?with_wired_terminal=true&with_terminal=false`)),
-      terminals: await safe("topology.terminals", () => call(`/topology/terminal/info/${encodedGroup}`))
-    })) : undefined;
+    const topology = wants("topology") ? await exportItem(async () => {
+      const raw = {
+        generation: await safe("topology.generation", () => call(`/topology/generation/record/${encodedGroup}`)),
+        tree: await safe("topology.tree", () => call(`/topology/info/${encodedGroup}?with_wired_terminal=true&with_terminal=false`)),
+        terminals: await safe("topology.terminals", () => call(`/topology/terminal/info/${encodedGroup}`))
+      };
+      return { graph: buildTopologyGraph(deviceSnapshots.length ? deviceSnapshots : devices, raw), ...raw };
+    }) : undefined;
     const clientStatistics = wants("clients.statistics") ? await exportItem(() => safe("clients.statistics", () => call("/network/current/user/statistical", { module: "logbiz", querys: { group_id: groupId } }))) : undefined;
     const wirelessSettings = wants("wireless.settings") ? await exportItem(async () => ({
       radio: await safe("wireless.radio", () => call("/conf/radio/global/config", { querys: { group_id: groupId } })),
@@ -316,5 +408,5 @@
     return true;
   }
 
-  window.__ruijieCloudExporter = { run, start, cancel, redact, isAllowed, getProgress };
+  window.__ruijieCloudExporter = { run, start, cancel, redact, isAllowed, getProgress, buildTopologyGraph };
 })();

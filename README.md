@@ -18,7 +18,7 @@ The extension uses the current Ruijie Cloud session without reading Cookie or lo
 
 - Project metadata, device counts and network model
 - Device inventory, details, capabilities, runtime utilization and online history
-- Topology tree, terminals and per-device links
+- Topology tree, terminals and per-device links, plus an AI-friendly normalized `nodes`/`links` graph
 - Current clients and client statistics
 - Gateway interfaces, WAN health, VLAN and port configuration
 - Switch ports/status, VLANs, uplink and neighbors

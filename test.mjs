@@ -20,6 +20,9 @@ const replies = envelope => {
     ] };
   }
   if (envelope.api === "/network/current/user/global/page") return { code: 0, list: [{ mac: "00:11" }] };
+  if (envelope.api === "/topology/generation/record/7") return { code: 0, data: { currentHasTopo: "true" } };
+  if (envelope.api.startsWith("/topology/info/7")) return { code: 0, data: { sn: "GW1", children: [{ sn: "SW1" }] } };
+  if (envelope.api === "/topology/terminal/info/7") return { code: 0, list: [{ sn: "AP1", details: [{ mac: "00:11", ip: "192.0.2.1", linkedPort: "Gi1" }] }] };
   if (envelope.api === "/conf/group/7/templates") return { code: 0, tempList: [{ id: 9 }] };
   if (envelope.api === "/conf/wifi_grp/wifi") return { code: 0, data: { ssidList: [{ ssidName: "Demo", password: "secret" }] } };
   if (envelope.api.startsWith("/intl/auth/v2/policy/")) return { code: 0, data: [{ policyName: "Guest portal", policyEnable: true }] };
@@ -81,6 +84,13 @@ assert.deepEqual(finishedProgress, {
 });
 assert.equal(snapshot.wireless.wifi[0].data.ssidList[0].password, "[REDACTED]");
 assert.equal(snapshot.portalAuth.policies.data[0].policyName, "Guest portal");
+assert.equal(snapshot.topology.graph.infrastructureAvailable, true);
+assert.equal(snapshot.topology.graph.nodes.length, 7);
+assert.deepEqual(snapshot.topology.graph.links, [
+  { source: "GW1", target: "SW1", type: "infrastructure" },
+  { source: "AP1", target: "client:00:11", type: "client", sourcePort: "Gi1" }
+]);
+assert.equal(snapshot.topology.graph.unlinkedClients, 0);
 assert.ok(requests.every(request => isAllowed(request.api, request.method)));
 
 requests.length = 0;
