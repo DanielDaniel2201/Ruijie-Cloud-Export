@@ -16,6 +16,7 @@
       #preview details { margin: 5px 0 0 8px; }
       #preview details label { margin-left: 18px; color: #596579; }
       #preview summary { cursor: pointer; font-weight: 650; }
+      #preview .count { float: right; color: #7a8598; font-size: 12px; font-weight: 500; }
       #preview input { margin-right: 7px; }
       #progress { min-height: 84px; margin-top: 12px; }
       .progress-row { display: flex; align-items: center; min-height: 28px; gap: 9px; color: #596579; }
@@ -34,7 +35,7 @@
     <h1>Ruijie Project Export</h1>
     <p>Preview and select the sections to include.</p>
     <div id="preview">
-      <label><input id="select-all" type="checkbox" checked><strong>All</strong></label>
+      <label><input id="select-all" type="checkbox" checked><strong>All</strong><span id="all-count" class="count"></span></label>
       <details open><summary>Project</summary>
         <label><input type="checkbox" value="project.overview" checked>Overview and network model</label>
         <label><input type="checkbox" value="topology" checked>Topology</label>

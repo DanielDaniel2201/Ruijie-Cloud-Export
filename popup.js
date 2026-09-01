@@ -4,7 +4,13 @@ const progressList = document.querySelector("#progress");
 const status = document.querySelector("#status");
 const preview = document.querySelector("#preview");
 const selectAll = document.querySelector("#select-all");
+const allCount = document.querySelector("#all-count");
 const choices = [...preview.querySelectorAll("input[value]")];
+preview.querySelectorAll("summary").forEach(summary => {
+  const count = document.createElement("span");
+  count.className = "count";
+  summary.append(count);
+});
 let tabId;
 let polling = false;
 let exporting = false;
@@ -81,6 +87,11 @@ function updateSelection() {
   const checked = choices.filter(choice => choice.checked).length;
   selectAll.checked = checked === choices.length;
   selectAll.indeterminate = checked > 0 && checked < choices.length;
+  allCount.textContent = `${checked}/${choices.length} items`;
+  preview.querySelectorAll("details").forEach(details => {
+    const group = [...details.querySelectorAll("input[value]")];
+    details.querySelector(".count").textContent = `${group.filter(choice => choice.checked).length}/${group.length}`;
+  });
   button.disabled = exporting || checked === 0;
 }
 
@@ -96,6 +107,7 @@ selectAll.addEventListener("change", () => {
   updateSelection();
 });
 choices.forEach(choice => choice.addEventListener("change", updateSelection));
+updateSelection();
 
 async function poll() {
   if (polling) return;
