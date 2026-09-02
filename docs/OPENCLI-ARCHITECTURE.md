@@ -12,7 +12,7 @@ Agent
   -> logged-in Ruijie browser session
 ```
 
-There is no MCP or custom browser transport. `ruijie.js` only translates CLI arguments/errors and creates the OpenCLI browser transport. `src/ruijie/domain.js` owns endpoint authorization, project/device validation, query composition, normalization, and redaction.
+There is no MCP or custom browser transport. `ruijie.js` only translates CLI arguments/errors, validates `--url`, navigates the adapter tab, and creates the OpenCLI browser transport from that URL's origin. `src/ruijie/domain.js` owns endpoint authorization, project/device validation, query composition, normalization, and redaction. The region host is not hardcoded; `cloud-as`, `cloud-eu`, and `cloud-me` are accepted when the pasted URL uses those hosts.
 
 ## Browser strategy
 
@@ -22,6 +22,7 @@ Data acquisition: browser-context page.fetchJson
 Contract: internal-unstable
 Observed request: POST /webproxy/common/api with a semantic read envelope
 Auth source: existing browser session; credentials included by OpenCLI
+Adapter tab: opened by OpenCLI; first command passes --url copied from Chrome
 Replay: HTTP 200, application/json, code=0
 ```
 

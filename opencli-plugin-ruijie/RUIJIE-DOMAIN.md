@@ -1,5 +1,7 @@
 # Ruijie command guide
 
+Paste the project page URL from Chrome into `--url` on the first command, or when switching projects. Later commands on the same adapter tab may omit it.
+
 - **Project**: the currently open Ruijie Cloud management scope.
 - **Device / SN**: managed gateway, switch, AP, or bridge and its serial number. Use only SNs returned by `project-context`.
 - **Gateway**: routes the network; query WAN, interfaces, DHCP, ports, and VLANs with `device-network`.

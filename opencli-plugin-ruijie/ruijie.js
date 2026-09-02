@@ -1,15 +1,51 @@
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { ArgumentError, AuthRequiredError, CommandExecutionError, EmptyResultError } from '@jackwener/opencli/errors';
 import { createRuijieDomain } from '../src/ruijie/domain.js';
+import { parseRuijieProjectUrl } from '../src/ruijie/url.js';
 
-const ORIGIN = 'https://cloud-as.ruijienetworks.com';
-const PROJECT_URL = `${ORIGIN}/macc5/adminIntl/#/monitor_project_workbarn_menu`;
+const urlArg = {
+  name: 'url',
+  type: 'string',
+  help: 'Full Ruijie Cloud project URL copied from Chrome. Required on the first command or when switching projects; later commands on the same adapter tab may omit it.',
+};
 
 function sections(value) {
   if (value === undefined) return undefined;
   const result = String(value).split(',').map(item => item.trim());
   if (!result.length || result.some(item => !item)) throw new ArgumentError('sections must contain non-empty comma-separated section names.');
   return result;
+}
+
+function asArgumentError(error) {
+  const message = error?.message || String(error);
+  throw new ArgumentError(message);
+}
+
+async function currentPageUrl(page) {
+  if (typeof page.getCurrentUrl === 'function') {
+    const url = await page.getCurrentUrl().catch(() => '');
+    if (url) return url;
+  }
+  return page.evaluate(() => location.href);
+}
+
+async function ensureProjectPage(page, urlArgValue) {
+  if (urlArgValue !== undefined && urlArgValue !== null && String(urlArgValue).trim() !== '') {
+    let parsed;
+    try {
+      parsed = parseRuijieProjectUrl(urlArgValue);
+    } catch (error) {
+      asArgumentError(error);
+    }
+    await page.goto(parsed.href);
+    return parsed;
+  }
+  const current = await currentPageUrl(page);
+  try {
+    return parseRuijieProjectUrl(current);
+  } catch {
+    throw new ArgumentError('Pass --url with the Ruijie Cloud project page copied from Chrome. The adapter tab is not on a Ruijie Cloud project yet.');
+  }
 }
 
 async function visibleProjectName(page) {
@@ -21,7 +57,7 @@ async function visibleProjectName(page) {
   return '';
 }
 
-function createDomain(page) {
+function createDomain(page, origin) {
   return createRuijieDomain({
     getVisibleProjectName: () => visibleProjectName(page),
     call: (api, { method = 'GET', module = 'default', querys = {}, params } = {}) => {
@@ -33,14 +69,14 @@ function createDomain(page) {
         authParams: { api, method },
       };
       if (params !== undefined) envelope.params = params;
-      return page.fetchJson(`${ORIGIN}/webproxy/common/api`, {
+      return page.fetchJson(`${origin}/webproxy/common/api`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: envelope,
         timeoutMs: 20_000,
       }).then(data => {
         if (typeof data?.code === 'number' && data.code !== 0) {
-          throw new CommandExecutionError(`${new URL(api, ORIGIN).pathname}: code ${data.code}`);
+          throw new CommandExecutionError(`${new URL(api, origin).pathname}: code ${data.code}`);
         }
         return data;
       });
@@ -48,20 +84,23 @@ function createDomain(page) {
   });
 }
 
-async function run(page, command, args) {
+async function run(page, command, args = {}) {
+  const { url, ...commandArgs } = args;
+  let projectUrl;
   try {
-    const result = await createDomain(page).invoke(command, args);
+    projectUrl = await ensureProjectPage(page, url);
+    const result = await createDomain(page, projectUrl.origin).invoke(command, commandArgs);
     if (result === undefined) throw new EmptyResultError(`ruijie ${command}`, 'Ruijie returned no data for the selected scope or sections.');
     return result;
   } catch (error) {
     if (error instanceof ArgumentError || error instanceof AuthRequiredError || error instanceof CommandExecutionError || error instanceof EmptyResultError) throw error;
     const message = error?.message || String(error);
     if (/Client not found in the current project/i.test(message)) throw new EmptyResultError('ruijie client-info', message);
-    if (/deviceSn is required|does not belong|missing from the current topology|Unsupported section|sections must|state must|limit must|page must|days must|scope must|type must|onlyProblems must|includeClients must|valid 48-bit MAC/i.test(message)) {
+    if (/deviceSn is required|does not belong|missing from the current topology|Unsupported section|sections must|state must|limit must|page must|days must|scope must|type must|onlyProblems must|includeClients must|valid 48-bit MAC|url must|url host|url is required/i.test(message)) {
       throw new ArgumentError(message);
     }
     if (/Open a project|HTTP (401|403)|login|authentication/i.test(message)) {
-      throw new AuthRequiredError('cloud-as.ruijienetworks.com', message);
+      throw new AuthRequiredError(projectUrl?.hostname || 'ruijienetworks.com', message);
     }
     throw new CommandExecutionError(message);
   }
@@ -70,10 +109,10 @@ async function run(page, command, args) {
 const common = {
   site: 'ruijie',
   access: 'read',
-  domain: 'cloud-as.ruijienetworks.com',
+  domain: 'ruijienetworks.com',
   strategy: Strategy.COOKIE,
   browser: true,
-  navigateBefore: PROJECT_URL,
+  navigateBefore: false,
   siteSession: 'persistent',
   defaultFormat: 'yaml',
 };
@@ -81,10 +120,10 @@ const common = {
 cli({
   ...common,
   name: 'project-context',
-  description: 'Discover the currently open Ruijie Cloud project, device inventory/types, network model, and supported query sections. Use this read-only command first when the target device or available capability is unknown.',
-  example: 'opencli ruijie project-context -f yaml',
-  args: [],
-  func: page => run(page, 'projectContext', {}),
+  description: 'Discover the currently open Ruijie Cloud project, device inventory/types, network model, and supported query sections. Pass --url with the project page copied from Chrome on the first command or when switching projects. Use this read-only command first when the target device or available capability is unknown.',
+  example: 'opencli ruijie project-context --url https://cloud-as.ruijienetworks.com/macc5/adminIntl/#/monitor_project_workbarn_menu -f yaml',
+  args: [urlArg],
+  func: (page, args) => run(page, 'projectContext', args),
 });
 
 cli({
@@ -95,8 +134,9 @@ cli({
   args: [
     { name: 'deviceSn', type: 'string', required: true, positional: true, help: 'Serial number returned by ruijie project-context; it must belong to the currently open project.' },
     { name: 'sections', type: 'string', help: 'Comma-separated subset: detail, ability, performance, history, topology. Omit for all sections.' },
+    urlArg,
   ],
-  func: (page, args) => run(page, 'deviceInfo', { deviceSn: args.deviceSn, sections: sections(args.sections) }),
+  func: (page, args) => run(page, 'deviceInfo', { deviceSn: args.deviceSn, sections: sections(args.sections), url: args.url }),
 });
 
 cli({
@@ -107,8 +147,9 @@ cli({
   args: [
     { name: 'deviceSn', type: 'string', required: true, positional: true, help: 'Serial number returned by ruijie project-context; it must belong to the currently open project.' },
     { name: 'sections', type: 'string', help: 'Comma-separated sections supported by that device type. Run project-context first when unsure; omit for all supported sections.' },
+    urlArg,
   ],
-  func: (page, args) => run(page, 'deviceNetwork', { deviceSn: args.deviceSn, sections: sections(args.sections) }),
+  func: (page, args) => run(page, 'deviceNetwork', { deviceSn: args.deviceSn, sections: sections(args.sections), url: args.url }),
 });
 
 cli({
@@ -120,8 +161,9 @@ cli({
     { name: 'state', type: 'string', default: 'active', choices: ['active', 'cleared'], help: 'Alarm lifecycle state: active or cleared.' },
     { name: 'limit', type: 'int', default: 50, help: 'Maximum alarms to request; integer from 1 to 200.' },
     { name: 'device-sn', type: 'string', help: 'Optional serial number from project-context; validated against the open project (the upstream response may remain project-wide).' },
+    urlArg,
   ],
-  func: (page, args) => run(page, 'alarms', { state: args.state, limit: args.limit, deviceSn: args['device-sn'] }),
+  func: (page, args) => run(page, 'alarms', { state: args.state, limit: args.limit, deviceSn: args['device-sn'], url: args.url }),
 });
 
 cli({
@@ -131,8 +173,9 @@ cli({
   example: 'opencli ruijie topology --include-clients true -f yaml',
   args: [
     { name: 'include-clients', type: 'bool', default: false, help: 'Include client nodes and attachment links in addition to infrastructure devices.' },
+    urlArg,
   ],
-  func: (page, args) => run(page, 'topology', { includeClients: args['include-clients'] }),
+  func: (page, args) => run(page, 'topology', { includeClients: args['include-clients'], url: args.url }),
 });
 
 cli({
@@ -147,10 +190,11 @@ cli({
     { name: 'type', type: 'string', default: 'all', choices: ['all', 'wired', 'wireless'], help: 'Client connection type: all, wired, or wireless.' },
     { name: 'only-problems', type: 'bool', default: false, help: 'Return only clients with bad status, packet loss, or RSSI at or below -70 dBm.' },
     { name: 'limit', type: 'int', default: 50, help: 'Maximum clients to scan on this page; integer from 1 to 200.' },
+    urlArg,
   ],
   func: (page, args) => run(page, 'clients', {
     deviceSn: args['device-sn'], scope: args.scope, page: args.page, type: args.type,
-    onlyProblems: args['only-problems'], limit: args.limit,
+    onlyProblems: args['only-problems'], limit: args.limit, url: args.url,
   }),
 });
 
@@ -161,8 +205,9 @@ cli({
   example: 'opencli ruijie client-info <MAC> -f yaml',
   args: [
     { name: 'mac', type: 'string', required: true, positional: true, help: 'Exact client MAC returned by ruijie clients; separators may be colon, hyphen, dot, or omitted.' },
+    urlArg,
   ],
-  func: (page, args) => run(page, 'clientInfo', { mac: args.mac }),
+  func: (page, args) => run(page, 'clientInfo', { mac: args.mac, url: args.url }),
 });
 
 cli({
@@ -174,8 +219,9 @@ cli({
     { name: 'device-sn', type: 'string', help: 'Optional current-project device SN used as validated diagnostic scope.' },
     { name: 'days', type: 'int', default: 7, help: 'History window in whole days, from 1 to 30.' },
     { name: 'limit', type: 'int', default: 50, help: 'Maximum log records to request, from 1 to 200.' },
+    urlArg,
   ],
-  func: (page, args) => run(page, 'operationLogs', { deviceSn: args['device-sn'], days: args.days, limit: args.limit }),
+  func: (page, args) => run(page, 'operationLogs', { deviceSn: args['device-sn'], days: args.days, limit: args.limit, url: args.url }),
 });
 
 cli({
@@ -185,8 +231,9 @@ cli({
   example: 'opencli ruijie wireless-settings --sections radio,wifi -f yaml',
   args: [
     { name: 'sections', type: 'string', help: 'Comma-separated subset: radio, wifi, loadBalancing, aiRoaming. Omit for all sections.' },
+    urlArg,
   ],
-  func: (page, args) => run(page, 'wirelessSettings', { sections: sections(args.sections) }),
+  func: (page, args) => run(page, 'wirelessSettings', { sections: sections(args.sections), url: args.url }),
 });
 
 cli({
@@ -197,6 +244,7 @@ cli({
   args: [
     { name: 'sections', type: 'string', help: 'Comma-separated subset: policies, ability, global, ssids. Omit for all sections.' },
     { name: 'limit', type: 'int', default: 100, help: 'Maximum Portal policies to request, from 1 to 200.' },
+    urlArg,
   ],
-  func: (page, args) => run(page, 'portalAuth', { sections: sections(args.sections), limit: args.limit }),
+  func: (page, args) => run(page, 'portalAuth', { sections: sections(args.sections), limit: args.limit, url: args.url }),
 });

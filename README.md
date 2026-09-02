@@ -19,23 +19,26 @@ This branch is OpenCLI-only. It does not contain or invoke an MCP server, custom
 ## Install
 
 1. Install OpenCLI 1.8.7+ and its Browser Bridge from [opencli.info](https://opencli.info).
-2. Log into Ruijie Cloud in Chrome and select the target project.
+2. Log into Ruijie Cloud in Chrome, open the target project, and copy that tab's URL.
 3. Install this repository's plugin locally:
 
 ```powershell
-opencli plugin install (Resolve-Path .\opencli-plugin-ruijie)
+cd opencli-plugin-ruijie
+opencli plugin install $PWD
 opencli doctor
 opencli validate ruijie
 ```
+
+OpenCLI needs an absolute local path (`$PWD` or `file:///...`). A bare folder name is treated as a remote plugin, not `.\opencli-plugin-ruijie`. From the repo root you can also run `opencli plugin install "$PWD\opencli-plugin-ruijie"`.
 
 If several Browser Bridge profiles are connected, place `--profile <name>` immediately after `opencli`.
 
 ## Commands
 
-Start by discovering the project and valid device SNs:
+Paste the project tab URL from Chrome into `--url` on the first command. The adapter opens an OpenCLI Adapter tab group at that address, then reads the project from the page. Later commands on the same adapter tab can omit `--url`.
 
 ```powershell
-opencli ruijie project-context -f yaml
+opencli ruijie project-context --url "https://cloud-as.ruijienetworks.com/macc5/adminIntl/#/monitor_project_workbarn_menu" -f yaml
 ```
 
 Then query one device or the project's alarms:
@@ -65,7 +68,7 @@ See [`opencli-plugin-ruijie/RUIJIE-DOMAIN.md`](opencli-plugin-ruijie/RUIJIE-DOMA
 
 - Every command declares `access: read`.
 - Only paths and semantic methods in `src/ruijie/domain.js` are accepted.
-- Absolute URLs, unknown paths, and method mismatches are rejected.
+- Inner API calls reject absolute URLs, unknown paths, and method mismatches. `--url` is only used to open the project page.
 - There is no generic API, fetch, eval, or configuration command.
 - Device SNs must belong to the currently selected project.
 - Sections, pagination, client filters/MAC, history windows, alarm state, and limits are validated in code.
@@ -74,7 +77,7 @@ See [`opencli-plugin-ruijie/RUIJIE-DOMAIN.md`](opencli-plugin-ruijie/RUIJIE-DOMA
 
 ## Browser strategy
 
-All ten adapters declare `Strategy.COOKIE`. The Ruijie APIs require the existing browser login but do not require response interception or UI clicking. `INTERCEPT` was therefore unnecessary. Known read calls are sent directly through the authenticated browser context to `POST /webproxy/common/api`.
+All ten adapters declare `Strategy.COOKIE` and `navigateBefore: false`. `--url` must be an `https://cloud-*.ruijienetworks.com/...` project page copied from Chrome. The adapter derives the API origin from that URL and does not hardcode a region host. Known read calls are sent through the authenticated browser context to `POST /webproxy/common/api`.
 
 See [`docs/OPENCLI-ARCHITECTURE.md`](docs/OPENCLI-ARCHITECTURE.md) and [`API-CATALOG.md`](API-CATALOG.md).
 
