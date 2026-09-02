@@ -6,7 +6,6 @@
 Agent
   -> OpenCLI 命令 / Skill
   -> Ruijie OpenCLI Adapter
-  -> Ruijie Domain/Query Layer
   -> OpenCLI Browser Bridge
   -> 已登录的 Ruijie Cloud Chrome Session
   -> /webproxy/common/api
@@ -16,7 +15,7 @@ Agent
 
 1. 从 [opencli.info](https://opencli.info) 安装 OpenCLI 1.8.7+ 和 Browser Bridge。
 2. 在 Chrome 登录 Ruijie Cloud，打开目标项目，并复制该 Tab 的 URL。
-3. 本地安装插件：
+3. 拷贝或克隆本仓库，然后安装自包含的 `opencli-plugin-ruijie` 目录：
 
 ```powershell
 cd opencli-plugin-ruijie
@@ -25,7 +24,7 @@ opencli doctor
 opencli validate ruijie
 ```
 
-OpenCLI 要的是本地绝对路径。只写文件夹名会被当成远程插件名。在仓库根目录也可以：`opencli plugin install "$PWD\opencli-plugin-ruijie"`。
+只要这个插件目录即可，不再依赖仓库里的其它文件。OpenCLI 要绝对路径（`$PWD`）。只写文件夹名会被当成远程插件名。
 
 ## 使用
 
@@ -53,7 +52,7 @@ opencli ruijie --help -f yaml
 ## 安全边界
 
 - 十个命令全部声明 `access: read`。
-- 只允许 `src/ruijie/domain.js` 中登记的路径和语义方法。
+- 只允许 `opencli-plugin-ruijie/domain.js` 中登记的路径和语义方法。
 - 拒绝绝对 URL、未知路径及方法不匹配。
 - 不提供通用 API、fetch、eval 或配置修改命令。
 - 在代码中校验设备归属、sections、告警状态和数量。

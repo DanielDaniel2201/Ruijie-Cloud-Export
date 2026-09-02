@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import * as core from './src/ruijie/domain.js';
+import * as core from './opencli-plugin-ruijie/domain.js';
 const requests = [];
 const transport = async (api, options = {}) => {
   requests.push({ api, method: options.method || 'GET', options });
@@ -68,7 +68,7 @@ await assert.rejects(domain.invoke('clientInfo', { mac: 'bad' }), /valid 48-bit/
 await assert.rejects(domain.invoke('operationLogs', { days: 31 }), /days must/);
 await assert.rejects(domain.invoke('wirelessSettings', { sections: ['bogus'] }), /Unsupported section/);
 
-const { parseRuijieProjectUrl } = await import('./src/ruijie/url.js');
+const { parseRuijieProjectUrl } = await import('./opencli-plugin-ruijie/url.js');
 const asUrl = 'https://cloud-as.ruijienetworks.com/macc5/adminIntl/#/monitor_project_workbarn_menu';
 const euUrl = 'https://cloud-eu.ruijienetworks.com/macc5/adminIntl/#/monitor_project_workbarn_menu?x=1';
 assert.equal(parseRuijieProjectUrl(asUrl).origin, 'https://cloud-as.ruijienetworks.com');
@@ -92,5 +92,6 @@ assert.ok([...adapter.matchAll(/help:\s*'[^']+'/g)].length >= 20);
 assert.doesNotMatch(adapter, /name:\s*'(?:api|fetch|eval)'/);
 assert.doesNotMatch(adapter, /navigateBefore:\s*`/);
 assert.doesNotMatch(adapter, /const ORIGIN/);
+assert.doesNotMatch(adapter, /\.\.\/src\//);
 
 console.log('OpenCLI domain and adapter checks passed');
