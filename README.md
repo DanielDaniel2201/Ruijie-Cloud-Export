@@ -8,7 +8,6 @@ Read-only OpenCLI adapters for inspecting the currently selected Ruijie Cloud pr
 Agent
   -> OpenCLI command / skill
   -> Ruijie OpenCLI adapter
-  -> shared Ruijie domain/query layer
   -> OpenCLI Browser Bridge
   -> logged-in Ruijie Cloud browser session
   -> /webproxy/common/api
@@ -20,7 +19,7 @@ This branch is OpenCLI-only. It does not contain or invoke an MCP server, custom
 
 1. Install OpenCLI 1.8.7+ and its Browser Bridge from [opencli.info](https://opencli.info).
 2. Log into Ruijie Cloud in Chrome, open the target project, and copy that tab's URL.
-3. Install this repository's plugin locally:
+3. Copy or clone this repository, then install the self-contained `opencli-plugin-ruijie` folder:
 
 ```powershell
 cd opencli-plugin-ruijie
@@ -29,7 +28,7 @@ opencli doctor
 opencli validate ruijie
 ```
 
-OpenCLI needs an absolute local path (`$PWD` or `file:///...`). A bare folder name is treated as a remote plugin, not `.\opencli-plugin-ruijie`. From the repo root you can also run `opencli plugin install "$PWD\opencli-plugin-ruijie"`.
+The plugin directory is enough; it does not depend on the rest of the repo. OpenCLI needs an absolute local path (`$PWD`). A bare folder name is treated as a remote plugin.
 
 If several Browser Bridge profiles are connected, place `--profile <name>` immediately after `opencli`.
 
@@ -67,7 +66,7 @@ See [`opencli-plugin-ruijie/RUIJIE-DOMAIN.md`](opencli-plugin-ruijie/RUIJIE-DOMA
 ## Security
 
 - Every command declares `access: read`.
-- Only paths and semantic methods in `src/ruijie/domain.js` are accepted.
+- Only paths and semantic methods in `opencli-plugin-ruijie/domain.js` are accepted.
 - Inner API calls reject absolute URLs, unknown paths, and method mismatches. `--url` is only used to open the project page.
 - There is no generic API, fetch, eval, or configuration command.
 - Device SNs must belong to the currently selected project.
