@@ -4,7 +4,7 @@ Observed against the `cloud-as.ruijienetworks.com/macc5/adminIntl` demo project 
 
 The browser sends all business calls to outer `POST /webproxy/common/api`. The JSON envelope contains `api`, semantic `method`, `module`, `querys`, optional `params`, and matching `authParams`. An outer POST therefore does not imply a write.
 
-## Included in the exporter
+## Available to the domain layer
 
 | Area | Representative semantic API | Data observed |
 |---|---|---|
@@ -30,4 +30,4 @@ The browser sends all business calls to outer `POST /webproxy/common/api`. The J
 - Every `trigger`, save, edit, add, upgrade, hand-over, share, upload and delete action.
 - Survey, marketing, chat/LLM and third-party feedback APIs.
 
-The allowlist lives in `collector.js`; unknown endpoints fail closed.
+The canonical allowlist lives in `src/ruijie/domain.js`; unknown endpoints, absolute URLs, and method mismatches fail closed. See [`docs/OPENCLI-ARCHITECTURE.md`](docs/OPENCLI-ARCHITECTURE.md#complete-semantic-api-allowlist) for the complete list.

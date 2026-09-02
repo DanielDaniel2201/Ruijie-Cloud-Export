@@ -1,60 +1,63 @@
-# Ruijie Cloud Project Export
+# Ruijie Cloud OpenCLI Adapter
 
-[English](README.md)
+本分支只支持 OpenCLI。它不包含或调用 MCP Server、自定义配对 Token Bridge 或项目专用 Chrome 扩展。
 
-这是一个只读 Chrome 扩展，用于把当前打开的锐捷云项目导出为本地 JSON 快照，也可以通过本地 MCP Server 让 Agent 按需读取项目信息。普通导出不会上传数据或调用 AI；启用 MCP 后，脱敏后的工具结果会交给用户配置的 MCP Client。导出期间即使关闭弹窗，扩展图标右下角仍会显示运行标记。
-
-## 加载扩展
-
-1. 打开 `chrome://extensions`。
-2. 开启**开发者模式**。
-3. 点击**加载已解压的扩展程序**，选择本仓库目录。
-4. 打开 `https://cloud-as.ruijienetworks.com/macc5/` 中的一个项目。
-5. 打开扩展，点击 **Export current project**。
-
-扩展会复用当前锐捷云登录状态，但不会读取 Cookie 或 localStorage 的值。它只能调用显式白名单中的只读操作。密码、PSK、token、Cookie、secret、credential、私钥、SNMP community、access key 和 user signature 字段都会在离开浏览器前替换为 `[REDACTED]`。IP、MAC、SN、SSID 和用户名作为诊断数据保留。
-
-## Agent / MCP
-
-1. 安装本地依赖：`npm install`。
-2. 生成一个至少 16 字符的随机配对 Token。
-3. 重新加载扩展，打开锐捷项目，在扩展的 **MCP agent connection** 中填写端口（默认 `32145`）和 Token，然后启用连接。
-4. 在 MCP Client 中添加：
-
-```json
-{
-  "mcpServers": {
-    "ruijie-cloud": {
-      "command": "node",
-      "args": ["D:/projects/ruijie-cloud-export/mcp-server.mjs"],
-      "env": {
-        "RUIJIE_MCP_TOKEN": "替换为同一个随机 Token",
-        "RUIJIE_MCP_PORT": "32145"
-      }
-    }
-  }
-}
+```text
+Agent
+  -> OpenCLI 命令 / Skill
+  -> Ruijie OpenCLI Adapter
+  -> Ruijie Domain/Query Layer
+  -> OpenCLI Browser Bridge
+  -> 已登录的 Ruijie Cloud Chrome Session
+  -> /webproxy/common/api
 ```
 
-MCP Server 只监听 `127.0.0.1`。保持一个锐捷项目标签页处于活动状态。Agent 可使用 `get_project_context`、`get_device_info`、`get_device_network` 和 `get_alarms`；设备 SN 必须来自当前项目，不能调用任意 API 或写操作。
+## 安装
 
-## 导出范围
+1. 从 [opencli.info](https://opencli.info) 安装 OpenCLI 1.8.7+ 和 Browser Bridge。
+2. 在 Chrome 登录 Ruijie Cloud，并进入目标项目。
+3. 本地安装插件：
 
-- 项目元数据、设备数量和网络模式
-- 设备清单、详情、能力、运行状态和上下线历史
-- 供 AI 使用的 `nodes`/`links` 规范化拓扑图及拓扑可用性原因
-- 去重合并后的当前客户端及客户端统计
-- 网关接口、WAN 健康状态、VLAN 和端口配置
-- 交换机端口/状态、VLAN、上联口和邻居
-- AP/无线桥的 Radio 能力、端口、VLAN 和客户端健康统计
-- Radio 配置、Wi-Fi 模板/SSID、负载均衡和 AI Roaming 配置
-- Portal 认证策略、能力、全局设置和关联 SSID
-- 当前/已清除告警，以及最近 30 天操作日志
+```powershell
+opencli plugin install (Resolve-Path .\opencli-plugin-ruijie)
+opencli doctor
+opencli validate ruijie
+```
 
-不支持或失败的部分会记录在顶层 `errors` 数组中，不会中止整个导出。导出采用紧凑 JSON，省略空值和成功 API 包装，并统一布尔值、时间及常见网络指标单位。
+## 使用
 
-## 检查
+```powershell
+opencli ruijie project-context -f yaml
+opencli ruijie device-info NAEK069CH0001 --sections detail,performance -f yaml
+opencli ruijie device-network NAEK069CH0001 --sections interfaces,wan -f yaml
+opencli ruijie alarms --state active --limit 50 -f yaml
+opencli ruijie topology --include-clients true -f yaml
+opencli ruijie clients --device-sn NAEK069CH0009 --type wireless --limit 50 -f yaml
+opencli ruijie client-info ff61.f210.53b3 -f yaml
+opencli ruijie operation-logs --days 7 --limit 50 -f yaml
+opencli ruijie wireless-settings --sections radio,wifi -f yaml
+opencli ruijie portal-auth --sections policies,ssids --limit 100 -f yaml
+```
+
+项目或设备未知时，先运行 `project-context`。设备 SN 必须来自当前项目。命令说明可通过以下方式查看：
+
+```powershell
+opencli ruijie --help -f yaml
+```
+
+## 安全边界
+
+- 十个命令全部声明 `access: read`。
+- 只允许 `src/ruijie/domain.js` 中登记的路径和语义方法。
+- 拒绝绝对 URL、未知路径及方法不匹配。
+- 不提供通用 API、fetch、eval 或配置修改命令。
+- 在代码中校验设备归属、sections、告警状态和数量。
+- 输出给 Agent 前继续执行标准化和敏感字段脱敏。
+- 登录 Cookie 留在浏览器中，请求由 OpenCLI `page.fetchJson()` 在浏览器上下文发出。
+
+## 测试
 
 ```powershell
 npm test
+opencli validate ruijie
 ```

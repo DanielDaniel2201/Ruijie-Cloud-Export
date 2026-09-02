@@ -1,0 +1,6 @@
+{
+  "name": "ruijie",
+  "version": "0.1.0",
+  "opencli": ">=1.8.7",
+  "description": "Read-only semantic Ruijie Cloud commands backed by the logged-in browser session"
+}
