@@ -1,5 +1,6 @@
 dist/
 node_modules/
+opencli-plugin-ruijie/package-lock.json
 ruijie-*.json
 *.zip
 .DS_Store
