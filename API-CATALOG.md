@@ -30,4 +30,4 @@ The browser sends all business calls to outer `POST /webproxy/common/api`. The J
 - Every `trigger`, save, edit, add, upgrade, hand-over, share, upload and delete action.
 - Survey, marketing, chat/LLM and third-party feedback APIs.
 
-The canonical allowlist lives in `src/ruijie/domain.js`; unknown endpoints, absolute URLs, and method mismatches fail closed. See [`docs/OPENCLI-ARCHITECTURE.md`](docs/OPENCLI-ARCHITECTURE.md#complete-semantic-api-allowlist) for the complete list.
+The canonical allowlist lives in `opencli-plugin-ruijie/domain.js`; unknown endpoints, absolute URLs, and method mismatches fail closed. See [`docs/OPENCLI-ARCHITECTURE.md`](docs/OPENCLI-ARCHITECTURE.md#complete-semantic-api-allowlist) for the complete list.

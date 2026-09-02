@@ -1,7 +1,7 @@
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { ArgumentError, AuthRequiredError, CommandExecutionError, EmptyResultError } from '@jackwener/opencli/errors';
-import { createRuijieDomain } from '../src/ruijie/domain.js';
-import { parseRuijieProjectUrl } from '../src/ruijie/url.js';
+import { createRuijieDomain } from './domain.js';
+import { parseRuijieProjectUrl } from './url.js';
 
 const urlArg = {
   name: 'url',
