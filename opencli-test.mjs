@@ -68,12 +68,29 @@ await assert.rejects(domain.invoke('clientInfo', { mac: 'bad' }), /valid 48-bit/
 await assert.rejects(domain.invoke('operationLogs', { days: 31 }), /days must/);
 await assert.rejects(domain.invoke('wirelessSettings', { sections: ['bogus'] }), /Unsupported section/);
 
+const { parseRuijieProjectUrl } = await import('./src/ruijie/url.js');
+const asUrl = 'https://cloud-as.ruijienetworks.com/macc5/adminIntl/#/monitor_project_workbarn_menu';
+const euUrl = 'https://cloud-eu.ruijienetworks.com/macc5/adminIntl/#/monitor_project_workbarn_menu?x=1';
+assert.equal(parseRuijieProjectUrl(asUrl).origin, 'https://cloud-as.ruijienetworks.com');
+assert.equal(parseRuijieProjectUrl(euUrl).hostname, 'cloud-eu.ruijienetworks.com');
+assert.equal(parseRuijieProjectUrl('https://cloud-me.ruijienetworks.com/macc5/adminIntl/#/device').origin, 'https://cloud-me.ruijienetworks.com');
+assert.throws(() => parseRuijieProjectUrl(''), /url is required/);
+assert.throws(() => parseRuijieProjectUrl('http://cloud-as.ruijienetworks.com/'), /https/);
+assert.throws(() => parseRuijieProjectUrl('https://example.com/'), /not a Ruijie Cloud site/);
+assert.throws(() => parseRuijieProjectUrl('/macc5/adminIntl/'), /absolute HTTPS/);
+
 const adapter = fs.readFileSync(new URL('./opencli-plugin-ruijie/ruijie.js', import.meta.url), 'utf8');
 assert.match(adapter, /access:\s*'read'/);
+assert.match(adapter, /navigateBefore:\s*false/);
+assert.match(adapter, /domain:\s*'ruijienetworks.com'/);
+assert.match(adapter, /name:\s*'url'/);
+assert.equal([...adapter.matchAll(/\burlArg\b/g)].length, 11);
 const commandNames = [...adapter.matchAll(/cli\(\{\s+\.\.\.common,\s+name:\s*'([^']+)'/g)].map(match => match[1]);
 assert.deepEqual(commandNames, ['project-context', 'device-info', 'device-network', 'alarms', 'topology', 'clients', 'client-info', 'operation-logs', 'wireless-settings', 'portal-auth']);
 assert.equal([...adapter.matchAll(/description:\s*'[^']{80,}'/g)].length, 10);
 assert.ok([...adapter.matchAll(/help:\s*'[^']+'/g)].length >= 20);
 assert.doesNotMatch(adapter, /name:\s*'(?:api|fetch|eval)'/);
+assert.doesNotMatch(adapter, /navigateBefore:\s*`/);
+assert.doesNotMatch(adapter, /const ORIGIN/);
 
 console.log('OpenCLI domain and adapter checks passed');

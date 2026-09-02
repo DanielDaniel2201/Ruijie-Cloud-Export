@@ -15,19 +15,24 @@ Agent
 ## 安装
 
 1. 从 [opencli.info](https://opencli.info) 安装 OpenCLI 1.8.7+ 和 Browser Bridge。
-2. 在 Chrome 登录 Ruijie Cloud，并进入目标项目。
+2. 在 Chrome 登录 Ruijie Cloud，打开目标项目，并复制该 Tab 的 URL。
 3. 本地安装插件：
 
 ```powershell
-opencli plugin install (Resolve-Path .\opencli-plugin-ruijie)
+cd opencli-plugin-ruijie
+opencli plugin install $PWD
 opencli doctor
 opencli validate ruijie
 ```
 
+OpenCLI 要的是本地绝对路径。只写文件夹名会被当成远程插件名。在仓库根目录也可以：`opencli plugin install "$PWD\opencli-plugin-ruijie"`。
+
 ## 使用
 
+把 Chrome 里项目页的 URL 通过 `--url` 传给第一条命令。Adapter 会新开 OpenCLI Adapter Tab Group 并打开这个地址。同一 Adapter Tab 上的后续命令可以省略 `--url`。
+
 ```powershell
-opencli ruijie project-context -f yaml
+opencli ruijie project-context --url "https://cloud-as.ruijienetworks.com/macc5/adminIntl/#/monitor_project_workbarn_menu" -f yaml
 opencli ruijie device-info NAEK069CH0001 --sections detail,performance -f yaml
 opencli ruijie device-network NAEK069CH0001 --sections interfaces,wan -f yaml
 opencli ruijie alarms --state active --limit 50 -f yaml
