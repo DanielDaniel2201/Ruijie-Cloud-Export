@@ -469,30 +469,83 @@
     // ponytail: fixed RSSI threshold, make it configurable if field deployments need calibration.
     return client.badRssi === true || (Number.isFinite(rssi) && rssi <= -70) || (Number.isFinite(loss) && loss > 0) || /bad|poor|offline|abnormal|error/.test(status);
   };
+  const summarizeClient = client => ({
+    mac: client.mac,
+    ip: client.ip,
+    name: client.userName || client.alias || client.staModel,
+    connectionType: clientConnectionType(client),
+    connectedDeviceSn: clientDeviceSn(client),
+    connectedDeviceName: client.deviceName,
+    ssid: client.ssid,
+    band: client.band,
+    channel: client.channel,
+    rssi: client.rssi ?? client.rssiDbm,
+    pktLoseRate: client.pktLoseRate ?? client.packetLossPercent,
+    activeSec: client.activeSec ?? client.activeSeconds,
+    onlineTime: client.onlineTime ?? client.onlineAt
+  });
+  const normalizedMac = mac => String(mac || "").replace(/[^a-f\d]/gi, "").toLowerCase();
 
   async function getClients(context, args) {
     const type = args.type ?? "all";
+    const scope = args.scope ?? "direct";
     if (!["all", "wired", "wireless"].includes(type)) throw new Error("type must be all, wired, or wireless.");
+    if (!["direct", "subtree"].includes(scope)) throw new Error("scope must be direct or subtree.");
     if (args.onlyProblems !== undefined && typeof args.onlyProblems !== "boolean") throw new Error("onlyProblems must be a boolean.");
+    if (scope === "subtree" && args.deviceSn === undefined) throw new Error("deviceSn is required for subtree scope.");
     if (args.deviceSn !== undefined) findDevice(context, args.deviceSn);
+    const page = boundedInteger(args.page, 1, "page", 10_000);
     const limit = boundedInteger(args.limit, 50, "limit", 200);
-    const pageSize = args.deviceSn || type !== "all" || args.onlyProblems ? 200 : limit;
-    const response = await call("/network/current/user/global/page", {
-      module: "logbiz",
-      querys: { group_id: context.groupId, page_index: 1, page_size: pageSize }
-    });
+    const querys = { group_id: context.groupId, page_index: page, page_size: limit };
+    let descendants;
+
+    if (args.deviceSn && scope === "direct") querys.linked_device = args.deviceSn;
+    if (scope === "subtree") {
+      descendants = new Set([args.deviceSn]);
+      let found = false;
+      const tree = await call(`/topology/info/${encodeURIComponent(context.groupId)}?with_wired_terminal=true&with_terminal=false`);
+      const walk = (item, inside = false) => {
+        if (Array.isArray(item)) return item.forEach(child => walk(child, inside));
+        if (!item || typeof item !== "object") return;
+        const sn = item.serialNumber || item.sn || item.deviceSn;
+        const inSubtree = inside || sn === args.deviceSn;
+        if (sn === args.deviceSn) found = true;
+        if (inSubtree && sn) descendants.add(sn);
+        walk(item.children || item.childList || item.nodes, inSubtree);
+      };
+      walk(tree.data || tree.list);
+      if (!found) throw new Error(`Device is missing from the current topology: ${args.deviceSn}`);
+    }
+
+    const response = await call("/network/current/user/global/page", { module: "logbiz", querys });
     let clients = response.list || response.dataList || response.data?.list || [];
     const scanned = clients.length;
-    if (args.deviceSn) clients = clients.filter(client => clientDeviceSn(client) === args.deviceSn);
+    if (descendants) clients = clients.filter(client => descendants.has(clientDeviceSn(client)));
     if (type !== "all") clients = clients.filter(client => clientConnectionType(client) === type);
     if (args.onlyProblems) clients = clients.filter(isProblemClient);
+    const sourceTotal = Number(response.currentCount ?? response.totalCount);
+    const hasMore = Number.isFinite(sourceTotal) ? page * limit < sourceTotal : scanned === limit;
     return {
-      filters: { type, onlyProblems: Boolean(args.onlyProblems), ...(args.deviceSn ? { deviceSn: args.deviceSn } : {}) },
+      filters: { scope, type, onlyProblems: Boolean(args.onlyProblems), ...(args.deviceSn ? { deviceSn: args.deviceSn } : {}) },
+      page,
       scanned,
-      mayHaveMore: scanned === pageSize,
-      returned: Math.min(clients.length, limit),
-      clients: clients.slice(0, limit)
+      returned: clients.length,
+      hasMore,
+      ...(hasMore ? { nextPage: page + 1 } : {}),
+      clients: clients.map(summarizeClient)
     };
+  }
+
+  async function getClientInfo(context, args) {
+    const mac = normalizedMac(args.mac);
+    if (mac.length !== 12) throw new Error("mac must be a valid 48-bit MAC address.");
+    const response = await call("/network/current/user/global/page", {
+      module: "logbiz",
+      querys: { group_id: context.groupId, page_index: 1, page_size: 10, keyword: args.mac }
+    });
+    const matches = (response.list || response.dataList || response.data?.list || []).filter(client => normalizedMac(client.mac) === mac);
+    if (matches.length !== 1) throw new Error(matches.length ? `MAC is not unique in the current project: ${args.mac}` : `Client not found in the current project: ${args.mac}`);
+    return { client: matches[0] };
   }
 
   async function getOperationLogs(context, args) {
@@ -543,6 +596,7 @@
       get_alarms: getAlarms,
       get_topology: getTopology,
       get_clients: getClients,
+      get_client_info: getClientInfo,
       get_operation_logs: getOperationLogs,
       get_wireless_settings: getWirelessSettings,
       get_portal_auth: getPortalAuth

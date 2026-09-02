@@ -69,15 +69,27 @@ const tools = [
   },
   {
     name: "get_clients",
-    description: "Read a bounded list of current clients, optionally scoped to a session-project device, wired/wireless type, or likely problem indicators.",
+    description: "Read a bounded page of compact current-client summaries. direct uses server-side device filtering; subtree includes clients attached to the device and its topology descendants without exhausting all pages in one call.",
     inputSchema: {
       type: "object",
       properties: {
-        deviceSn: { type: "string", minLength: 1, maxLength: 128, description: "Optional serial number from this session's project context." },
+        deviceSn: { type: "string", minLength: 1, maxLength: 128, description: "Optional serial number from this session's project context; required for subtree scope." },
+        scope: { type: "string", enum: ["direct", "subtree"], default: "direct" },
+        page: { type: "integer", minimum: 1, maximum: 10000, default: 1 },
         type: { type: "string", enum: ["all", "wired", "wireless"], default: "all" },
         onlyProblems: { type: "boolean", default: false },
         limit: { type: "integer", minimum: 1, maximum: 200, default: 50 }
       },
+      additionalProperties: false
+    }
+  },
+  {
+    name: "get_client_info",
+    description: "Read the full current list record for one client identified by a MAC address returned by get_clients.",
+    inputSchema: {
+      type: "object",
+      properties: { mac: { type: "string", minLength: 12, maxLength: 32 } },
+      required: ["mac"],
       additionalProperties: false
     }
   },

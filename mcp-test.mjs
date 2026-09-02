@@ -23,7 +23,7 @@ await client.connect(transport);
 const listed = await client.listTools();
 assert.deepEqual(listed.tools.map(tool => tool.name), [
   "get_project_context", "get_device_info", "get_device_network", "get_alarms", "get_topology",
-  "get_clients", "get_operation_logs", "get_wireless_settings", "get_portal_auth"
+  "get_clients", "get_client_info", "get_operation_logs", "get_wireless_settings", "get_portal_auth"
 ]);
 assert.equal((await fetch(`http://127.0.0.1:${port}/next`)).status, 401);
 

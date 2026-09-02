@@ -22,14 +22,18 @@ const replies = envelope => {
       { serialNumber: "AP4", commonType: "AP" }
     ] };
   }
-  if (envelope.api === "/network/current/user/global/page") return { code: 0, list: [{ mac: "00:11", onlineTime: 1_700_000_000_000, activeSec: 60, upRate: "128", userName: "", apSn: "AP1", connectionType: "wireless", rssi: "-75", token: "client-token" }] };
+  if (envelope.api === "/network/current/user/global/page") {
+    const all = [{ mac: "00:11:22:33:44:55", ip: "192.0.2.1", onlineTime: 1_700_000_000_000, activeSec: 60, upRate: "128", userName: "", apSn: "AP1", connectionType: "wireless", rssi: "-75", token: "client-token" }];
+    const list = all.filter(client => (!envelope.querys.linked_device || client.apSn === envelope.querys.linked_device) && (!envelope.querys.keyword || client.mac.replace(/[^a-f\d]/gi, "").toLowerCase() === envelope.querys.keyword.replace(/[^a-f\d]/gi, "").toLowerCase()));
+    return { code: 0, currentCount: list.length, totalCount: all.length, list };
+  }
   if (envelope.api === "/maint/device/GW1") return { code: 0, data: { serialNumber: "GW1", password: "gateway-secret" } };
   if (envelope.api === "/gateway/intf/info/GW1") return { code: 0, data: { name: "WAN1", token: "gateway-token" } };
   if (envelope.api.startsWith("/warn/warnlog")) return { code: 0, list: [{ sn: "GW1", message: "WAN down", accessKey: "alarm-key" }] };
   if (envelope.api.startsWith("/operationlog/list")) return { code: 0, list: [{ sn: "GW1", description: "WAN changed", credential: "log-secret" }] };
   if (envelope.api === "/topology/generation/record/7") return { code: 0, data: { currentHasTopo: "true" } };
-  if (envelope.api.startsWith("/topology/info/7")) return { code: 0, data: { sn: "GW1", children: [{ sn: "SW1" }] } };
-  if (envelope.api === "/topology/terminal/info/7") return { code: 0, list: [{ sn: "AP1", details: [{ mac: "00:11", ip: "192.0.2.1", linkedPort: "Gi1" }] }] };
+  if (envelope.api.startsWith("/topology/info/7")) return { code: 0, data: { sn: "GW1", children: [{ sn: "SW1", children: [{ sn: "AP1" }] }] } };
+  if (envelope.api === "/topology/terminal/info/7") return { code: 0, list: [{ sn: "AP1", details: [{ mac: "00:11:22:33:44:55", ip: "192.0.2.1", linkedPort: "Gi1" }] }] };
   if (envelope.api === "/conf/group/7/templates") return { code: 0, tempList: [{ id: 9 }] };
   if (envelope.api === "/conf/wifi_grp/wifi") return { code: 0, data: { ssidList: [{ ssidName: "Demo", password: "secret" }] } };
   if (envelope.api.startsWith("/intl/auth/v2/policy/")) return { code: 0, data: [{ policyName: "Guest portal", policyEnable: true }] };
@@ -118,7 +122,8 @@ assert.equal(snapshot.topology.available, true);
 assert.equal(snapshot.topology.nodes.length, 7);
 assert.deepEqual(snapshot.topology.links, [
   { source: "GW1", target: "SW1", type: "infrastructure" },
-  { source: "AP1", target: "client:00:11", type: "client", sourcePort: "Gi1" }
+  { source: "SW1", target: "AP1", type: "infrastructure" },
+  { source: "AP1", target: "client:00:11:22:33:44:55", type: "client", sourcePort: "Gi1" }
 ]);
 assert.equal(snapshot.topology.unlinkedClientCount, 0);
 assert.equal(result.json.includes("\n"), false);
@@ -207,7 +212,14 @@ assert.equal(topology.links.some(link => link.type === "client"), true);
 const clients = await invokeTool("get_clients", { deviceSn: "AP1", type: "wireless", onlyProblems: true, limit: 10 });
 assert.equal(clients.returned, 1);
 assert.equal(clients.clients[0].rssiDbm, -75);
-assert.equal(clients.clients[0].token, "[REDACTED]");
+assert.equal("token" in clients.clients[0], false);
+assert.equal(requests.at(-1).querys.linked_device, "AP1");
+const subtreeClients = await invokeTool("get_clients", { deviceSn: "GW1", scope: "subtree", limit: 10 });
+assert.equal(subtreeClients.returned, 1);
+assert.equal(subtreeClients.clients[0].connectedDeviceSn, "AP1");
+const clientInfo = await invokeTool("get_client_info", { mac: "00:11:22:33:44:55" });
+assert.equal(clientInfo.client.token, "[REDACTED]");
+assert.equal(requests.at(-1).querys.keyword, "00:11:22:33:44:55");
 const operationLogs = await invokeTool("get_operation_logs", { deviceSn: "GW1", days: 7, limit: 10 });
 assert.equal(operationLogs.logs[0].credential, "[REDACTED]");
 const wirelessSettings = await invokeTool("get_wireless_settings", { sections: ["wifi"] });
@@ -217,6 +229,8 @@ assert.equal(portalAuth.policies[0].policyName, "Guest portal");
 await assert.rejects(invokeTool("get_device_info", { deviceSn: "OTHER", sections: ["detail"] }), /does not belong/);
 await assert.rejects(invokeTool("get_device_network", { deviceSn: "GW1", sections: ["radio"] }), /Unsupported section/);
 await assert.rejects(invokeTool("get_clients", { type: "bluetooth" }), /type must be/);
+await assert.rejects(invokeTool("get_clients", { scope: "subtree" }), /deviceSn is required/);
+await assert.rejects(invokeTool("get_client_info", { mac: "bad" }), /valid 48-bit/);
 await assert.rejects(invokeTool("get_operation_logs", { days: 31 }), /days must be/);
 await assert.rejects(invokeTool("call_api", { api: "/maint/device/GW1" }), /Unknown tool/);
 
