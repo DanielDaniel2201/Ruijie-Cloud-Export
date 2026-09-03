@@ -12,7 +12,7 @@ Agent
   -> logged-in Ruijie browser session
 ```
 
-There is no MCP or custom browser transport. `ruijie.js` only translates CLI arguments/errors, validates `--url`, navigates the adapter tab, and creates the OpenCLI browser transport from that URL's origin. `domain.js` in the same plugin directory owns endpoint authorization, project/device validation, query composition, normalization, and redaction. The region host is not hardcoded; `cloud-as`, `cloud-eu`, and `cloud-me` are accepted when the pasted URL uses those hosts.
+There is no MCP or custom browser transport. `ruijie.js` only translates CLI arguments/errors, validates `--url`, navigates the adapter tab, switches and verifies the named project in the top-left picker, and creates the OpenCLI browser transport from that URL's origin. Because the URL identifies an account rather than a selected project, every command also requires an exact `--project` name. `domain.js` in the same plugin directory owns endpoint authorization, project/device validation, query composition, normalization, and redaction. The region host is not hardcoded; `cloud-as`, `cloud-eu`, and `cloud-me` are accepted when the pasted URL uses those hosts.
 
 ## Browser strategy
 
@@ -57,7 +57,7 @@ Before output:
 
 ## Validation
 
-- The visible `.groupbar-name` must resolve uniquely against the account's project list.
+- The required `--project` name must appear uniquely in the project picker and resolve uniquely against the account's project list; both the UI switch and API scope are verified.
 - Device commands accept only an SN in that project's inventory.
 - Device-info sections: `detail`, `ability`, `performance`, `history`, `topology`.
 - Network sections are restricted by gateway/switch/wireless device type.

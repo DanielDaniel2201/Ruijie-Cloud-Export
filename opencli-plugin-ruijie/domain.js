@@ -231,8 +231,9 @@ const SECRET_KEY = /pass(word)?|pwd|psk|secret|token|cookie|credential|authoriza
     return results;
   }
 
-  function createRuijieDomain({ call: transport, getVisibleProjectName }) {
-    if (typeof transport !== "function" || typeof getVisibleProjectName !== "function") throw new Error("Ruijie domain requires call and getVisibleProjectName functions.");
+  function createRuijieDomain({ call: transport, projectName }) {
+    if (typeof transport !== "function") throw new Error("Ruijie domain requires a call function.");
+    if (typeof projectName !== "string" || !projectName.trim()) throw new Error("project must be a non-empty project name.");
 
     async function call(api, options = {}) {
       const method = options.method || "GET";
@@ -257,17 +258,14 @@ const SECRET_KEY = /pass(word)?|pwd|psk|secret|token|cookie|credential|authoriza
     }
 
     async function resolveProject() {
-      const visibleValue = getVisibleProjectName();
-      const visibleProjectName = String((visibleValue && typeof visibleValue.then === "function" ? await visibleValue : visibleValue) || "").trim();
-      if (!visibleProjectName) throw new Error("Open a project in Ruijie Cloud first.");
+      const selectedProjectName = projectName.trim();
       const projectsResponse = await call("/maint/network/common/list?page_index=1&page_size=999&version=1&include_fitap=true");
-      const projects = projectsResponse?.dataList || [];
-      const matches = projects.filter(project => project.name === visibleProjectName);
-      const project = matches.length === 1 ? matches[0] : projects.length === 1 ? projects[0] : null;
-      if (!project) throw new Error(`Could not uniquely match the open project: ${visibleProjectName}`);
+      const matches = (projectsResponse?.dataList || []).filter(project => project.name === selectedProjectName);
+      if (matches.length !== 1) throw new Error(`Could not uniquely match the project: ${selectedProjectName}`);
+      const project = matches[0];
       const groupId = project.buildingId;
       const deviceResponse = await call("/maint/devices/list?page=1&per_page=9999", { method: "POST", params: { groupId, commonType: "" } });
-      return { visibleProjectName, project, groupId, devices: deviceResponse?.deviceList || [] };
+      return { project, groupId, devices: deviceResponse?.deviceList || [] };
     }
 
     function findDevice(context, deviceSn) {

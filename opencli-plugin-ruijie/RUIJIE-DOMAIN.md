@@ -1,8 +1,8 @@
 # Ruijie command guide
 
-Paste the project page URL from Chrome into `--url` on the first command, or when switching projects. Later commands on the same adapter tab may omit it.
+A Ruijie URL identifies an account/region, not its selected project. Pass the exact project name through `--project` on every command. Pass the Chrome URL through `--url` on the first command or when switching accounts/regions; the adapter switches and verifies the top-left project picker. Later commands on the same adapter tab may omit `--url`.
 
-- **Project**: the currently open Ruijie Cloud management scope.
+- **Project**: the Ruijie Cloud management scope named by `--project`.
 - **Device / SN**: managed gateway, switch, AP, or bridge and its serial number. Use only SNs returned by `project-context`.
 - **Gateway**: routes the network; query WAN, interfaces, DHCP, ports, and VLANs with `device-network`.
 - **Switch**: connects wired devices; query ports, VLANs, uplink, and neighbors with `device-network`.

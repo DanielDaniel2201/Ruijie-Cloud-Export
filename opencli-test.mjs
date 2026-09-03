@@ -4,7 +4,7 @@ import * as core from './opencli-plugin-ruijie/domain.js';
 const requests = [];
 const transport = async (api, options = {}) => {
   requests.push({ api, method: options.method || 'GET', options });
-  if (api.startsWith('/maint/network/common/list')) return { code: 0, dataList: [{ buildingId: 7, name: 'Demo' }] };
+  if (api.startsWith('/maint/network/common/list')) return { code: 0, dataList: [{ buildingId: 1, name: 'First project' }, { buildingId: 7, name: 'Demo' }] };
   if (api.startsWith('/maint/devices/list')) return { code: 0, deviceList: [
     { serialNumber: 'GW1', commonType: 'GATEWAY' },
     { serialNumber: 'SW1', commonType: 'SWITCH' },
@@ -23,11 +23,13 @@ const transport = async (api, options = {}) => {
   if (api.startsWith('/intl/auth/v2/policy/7')) return { code: 0, data: [{ policyName: 'Guest portal' }] };
   return { code: 0, data: { apiKey: 'secret', link: 'https://example.test/?token=secret' } };
 };
-const domain = core.createRuijieDomain({ call: transport, getVisibleProjectName: () => 'Demo' });
+const domain = core.createRuijieDomain({ call: transport, projectName: 'Demo' });
 
 const project = await domain.invoke('projectContext');
 assert.equal(project.project.name, 'Demo');
 assert.equal(project.devices[0].type, 'gateway');
+assert.throws(() => core.createRuijieDomain({ call: transport }), /project must be a non-empty project name/);
+await assert.rejects(core.createRuijieDomain({ call: transport, projectName: 'Missing' }).invoke('projectContext'), /Could not uniquely match the project/);
 assert.ok(requests.every(({ api, method }) => core.isAllowed(api, method)));
 
 await assert.rejects(domain.invoke('deviceInfo', { deviceSn: '' }), /deviceSn is required/);
@@ -79,12 +81,25 @@ assert.throws(() => parseRuijieProjectUrl('http://cloud-as.ruijienetworks.com/')
 assert.throws(() => parseRuijieProjectUrl('https://example.com/'), /not a Ruijie Cloud site/);
 assert.throws(() => parseRuijieProjectUrl('/macc5/adminIntl/'), /absolute HTTPS/);
 
+const { selectRuijieProject } = await import('./opencli-plugin-ruijie/project.js');
+const browserReads = [
+  'First project',
+  { matches: 1, names: ['First project', 'Demo'] },
+  'Demo',
+];
+assert.equal(await selectRuijieProject({
+  evaluate: async () => browserReads.shift(),
+  sleep: async () => {},
+}, 'Demo'), true);
+
 const adapter = fs.readFileSync(new URL('./opencli-plugin-ruijie/ruijie.js', import.meta.url), 'utf8');
 assert.match(adapter, /access:\s*'read'/);
 assert.match(adapter, /navigateBefore:\s*false/);
 assert.match(adapter, /domain:\s*'ruijienetworks.com'/);
 assert.match(adapter, /name:\s*'url'/);
+assert.match(adapter, /name:\s*'project'[\s\S]*?required:\s*true/);
 assert.equal([...adapter.matchAll(/\burlArg\b/g)].length, 11);
+assert.equal([...adapter.matchAll(/\bprojectArg\b/g)].length, 11);
 const commandNames = [...adapter.matchAll(/cli\(\{\s+\.\.\.common,\s+name:\s*'([^']+)'/g)].map(match => match[1]);
 assert.deepEqual(commandNames, ['project-context', 'device-info', 'device-network', 'alarms', 'topology', 'clients', 'client-info', 'operation-logs', 'wireless-settings', 'portal-auth']);
 assert.equal([...adapter.matchAll(/description:\s*'[^']{80,}'/g)].length, 10);

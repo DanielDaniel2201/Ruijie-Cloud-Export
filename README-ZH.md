@@ -14,7 +14,7 @@ Agent
 ## 安装
 
 1. 从 [opencli.info](https://opencli.info) 安装 OpenCLI 1.8.7+ 和 Browser Bridge。
-2. 在 Chrome 登录 Ruijie Cloud，打开目标项目，并复制该 Tab 的 URL。
+2. 在 Chrome 登录 Ruijie Cloud，记下目标项目的准确名称，并复制该 Tab 的 URL。
 3. 拷贝或克隆本仓库，然后安装自包含的 `opencli-plugin-ruijie` 目录：
 
 ```powershell
@@ -28,22 +28,23 @@ opencli validate ruijie
 
 ## 使用
 
-把 Chrome 里项目页的 URL 通过 `--url` 传给第一条命令。Adapter 会新开 OpenCLI Adapter Tab Group 并打开这个地址。同一 Adapter Tab 上的后续命令可以省略 `--url`。
+这个 URL 只标识账号和区域，不包含当前所选项目。每条命令都要通过 `--project` 传入准确项目名称；第一条命令还要传 `--url`。Adapter 会新开 OpenCLI Adapter Tab Group，自动在左上角切换并校验指定项目；同一 Adapter Tab 上的后续命令可以省略 `--url`。
 
 ```powershell
-opencli ruijie project-context --url "https://cloud-as.ruijienetworks.com/macc5/adminIntl/#/monitor_project_workbarn_menu" -f yaml
-opencli ruijie device-info NAEK069CH0001 --sections detail,performance -f yaml
-opencli ruijie device-network NAEK069CH0001 --sections interfaces,wan -f yaml
-opencli ruijie alarms --state active --limit 50 -f yaml
-opencli ruijie topology --include-clients true -f yaml
-opencli ruijie clients --device-sn NAEK069CH0009 --type wireless --limit 50 -f yaml
-opencli ruijie client-info ff61.f210.53b3 -f yaml
-opencli ruijie operation-logs --days 7 --limit 50 -f yaml
-opencli ruijie wireless-settings --sections radio,wifi -f yaml
-opencli ruijie portal-auth --sections policies,ssids --limit 100 -f yaml
+$project = "Yang Test"
+opencli ruijie project-context --project "$project" --url "https://cloud-as.ruijienetworks.com/macc5/adminIntl/#/monitor_project_workbarn_menu" -f yaml
+opencli ruijie device-info NAEK069CH0001 --project "$project" --sections detail,performance -f yaml
+opencli ruijie device-network NAEK069CH0001 --project "$project" --sections interfaces,wan -f yaml
+opencli ruijie alarms --project "$project" --state active --limit 50 -f yaml
+opencli ruijie topology --project "$project" --include-clients true -f yaml
+opencli ruijie clients --project "$project" --device-sn NAEK069CH0009 --type wireless --limit 50 -f yaml
+opencli ruijie client-info ff61.f210.53b3 --project "$project" -f yaml
+opencli ruijie operation-logs --project "$project" --days 7 --limit 50 -f yaml
+opencli ruijie wireless-settings --project "$project" --sections radio,wifi -f yaml
+opencli ruijie portal-auth --project "$project" --sections policies,ssids --limit 100 -f yaml
 ```
 
-项目或设备未知时，先运行 `project-context`。设备 SN 必须来自当前项目。命令说明可通过以下方式查看：
+设备未知时，先对指定项目运行 `project-context`。设备 SN 必须来自该项目。命令说明可通过以下方式查看：
 
 ```powershell
 opencli ruijie --help -f yaml
